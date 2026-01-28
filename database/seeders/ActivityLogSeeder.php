@@ -3,15 +3,15 @@
 namespace Database\Seeders;
 
 use App\Models\ActivityLog;
-use App\Models\User;
 use Illuminate\Database\Seeder;
 
 class ActivityLogSeeder extends Seeder
 {
     public function run(): void
     {
-        $adminId = User::query()->where('email', 'admin@gmail.com')->value('id');
+        $adminId = \App\Models\User::query()->orderBy('id')->value('id');
         if (!$adminId) return;
+
 
         ActivityLog::query()->create([
             'admin_id' => $adminId,

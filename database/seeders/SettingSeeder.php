@@ -12,10 +12,10 @@ class SettingSeeder extends Seeder
         Setting::query()->updateOrCreate(
             ['id' => 1],
             [
-                'school_name' => 'SMK Contoh Negeri 1',
+                'school_name' => 'SMKN 9 MALANG',
                 'city' => 'Jakarta',
                 'code_format' => 'INV-{YEAR}-{SEQ}',
-                'notification_email' => 'admin@gmail.com',
+                'notification_email' => 'inventaryy@gmail.com',
                 'notification_wa' => null,
             ]
         );

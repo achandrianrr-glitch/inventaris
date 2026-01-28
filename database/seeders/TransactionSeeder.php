@@ -4,15 +4,15 @@ namespace Database\Seeders;
 
 use App\Models\Item;
 use App\Models\Transaction;
-use App\Models\User;
 use Illuminate\Database\Seeder;
 
 class TransactionSeeder extends Seeder
 {
     public function run(): void
     {
-        $adminId = User::query()->where('email', 'admin@gmail.com')->value('id');
+        $adminId = \App\Models\User::query()->orderBy('id')->value('id');
         if (!$adminId) return;
+
 
         $item = Item::query()->inRandomOrder()->first();
         if (!$item) return;

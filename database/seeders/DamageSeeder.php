@@ -4,17 +4,18 @@ namespace Database\Seeders;
 
 use App\Models\Damage;
 use App\Models\Item;
-use App\Models\User;
 use Illuminate\Database\Seeder;
 
 class DamageSeeder extends Seeder
 {
     public function run(): void
     {
-        $adminId = User::query()->where('email', 'admin@gmail.com')->value('id');
-        $item = Item::query()->inRandomOrder()->first();
+        $adminId = \App\Models\User::query()->orderBy('id')->value('id');
+        if (!$adminId) return;
 
-        if (!$adminId || !$item) return;
+        $item = Item::query()->inRandomOrder()->first();
+        if (!$item) return;
+
 
         Damage::query()->create([
             'code' => 'DMG-0001',

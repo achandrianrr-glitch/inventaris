@@ -10,7 +10,7 @@ class NotificationSeeder extends Seeder
 {
     public function run(): void
     {
-        $adminId = User::query()->where('email', 'admin@gmail.com')->value('id');
+        $adminId = User::query()->orderBy('id')->value('id');
         if (!$adminId) return;
 
         Notification::query()->create([

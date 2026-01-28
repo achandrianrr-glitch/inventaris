@@ -7,42 +7,64 @@ use App\Models\Borrowing;
 use App\Models\Item;
 use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class BorrowingSeeder extends Seeder
 {
     public function run(): void
     {
-        $adminId = User::query()->where('email', 'admin@gmail.com')->value('id');
+        $adminId = User::query()->orderBy('id')->value('id');
+        if (!$adminId) {
+            return;
+        }
+
         $borrower = Borrower::query()->inRandomOrder()->first();
-        $item = Item::query()->where('stock_available', '>=', 2)->inRandomOrder()->first();
+        if (!$borrower) {
+            return;
+        }
 
-        if (!$adminId || !$borrower || !$item) return;
+        $item = Item::query()->where('stock_available', '>=', 1)->inRandomOrder()->first();
+        if (!$item) {
+            return;
+        }
 
-        $qty = 2;
+        // Ambil qty aman (maks 2, tapi tidak boleh lebih dari stok tersedia)
+        $qty = min(2, (int) $item->stock_available);
+        if ($qty <= 0) {
+            return;
+        }
 
-        Borrowing::query()->create([
-            'code' => 'BRW-0001',
-            'borrower_id' => $borrower->id,
-            'item_id' => $item->id,
-            'qty' => $qty,
-            'borrow_type' => 'daily',
-            'lesson_hour' => null,
-            'subject' => null,
-            'teacher' => null,
-            'borrow_date' => now()->toDateString(),
-            'borrow_time' => now()->format('H:i:s'),
-            'return_due' => now()->addDays(2),
-            'return_date' => null,
-            'return_condition' => null,
-            'status' => 'borrowed',
-            'admin_id' => $adminId,
-            'notes' => 'Dummy pinjam untuk test',
-        ]);
+        DB::transaction(function () use ($adminId, $borrower, $item, $qty) {
+            // Biar tidak bentrok kalau seeder dipanggil berkali-kali
+            $code = Borrowing::query()->where('code', 'BRW-0001')->exists()
+                ? 'BRW-' . str_pad((string) (Borrowing::count() + 1), 4, '0', STR_PAD_LEFT)
+                : 'BRW-0001';
 
-        // bikin stok konsisten (simulasi logic tahap 12)
-        $item->update([
-            'stock_available' => max(0, $item->stock_available - $qty),
-            'stock_borrowed' => $item->stock_borrowed + $qty,
-        ]);
+            Borrowing::query()->create([
+                'code' => $code,
+                'borrower_id' => $borrower->id,
+                'item_id' => $item->id,
+                'qty' => $qty,
+                'borrow_type' => 'daily',
+                'lesson_hour' => null,
+                'subject' => null,
+                'teacher' => null,
+                'borrow_date' => now()->toDateString(),
+                'borrow_time' => now()->format('H:i:s'),
+                'return_due' => now()->addDays(2),
+                'return_date' => null,
+                'return_condition' => null,
+                'status' => 'borrowed',
+                'admin_id' => $adminId,
+                'notes' => 'Dummy pinjam untuk test',
+            ]);
+
+            // Update stok konsisten
+            $item->refresh(); // ambil data terbaru
+            $item->update([
+                'stock_available' => max(0, (int) $item->stock_available - $qty),
+                'stock_borrowed' => (int) $item->stock_borrowed + $qty,
+            ]);
+        });
     }
 }

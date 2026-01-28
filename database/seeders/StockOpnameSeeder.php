@@ -11,10 +11,10 @@ class StockOpnameSeeder extends Seeder
 {
     public function run(): void
     {
-        $adminId = User::query()->where('email', 'admin@gmail.com')->value('id');
+        $adminId = User::query()->orderBy('id')->value('id');
         $item = Item::query()->inRandomOrder()->first();
 
-        if (!$adminId || !$item) return;
+        if (!$adminId) return;
 
         $system = (int) $item->stock_total;
         $physical = $system; // dummy matched
