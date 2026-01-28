@@ -50,6 +50,9 @@ const submit = () => {
                     required
                     autofocus
                     autocomplete="username"
+                    placeholder="nama@gmail.com"
+                    pattern="^[^@]+@gmail\.com$"
+                    title="Email wajib @gmail.com"
                 />
 
                 <InputError class="mt-2" :message="form.errors.email" />

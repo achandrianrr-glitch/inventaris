@@ -51,7 +51,14 @@ const submit = () => {
                     v-model="form.email"
                     required
                     autocomplete="username"
+                    placeholder="nama@gmail.com"
+                    pattern="^[^@]+@gmail\.com$"
+                    title="Email wajib @gmail.com"
                 />
+
+                <p class="mt-1 text-sm text-gray-500">
+                    Gunakan Emaile(User@gmail.com).
+                </p>
 
                 <InputError class="mt-2" :message="form.errors.email" />
             </div>
