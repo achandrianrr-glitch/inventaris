@@ -2,21 +2,21 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Borrower extends Model
 {
-    use HasFactory;
+    use SoftDeletes;
 
     protected $fillable = [
         'name',
-        'type',
+        'type',       // student | teacher
         'class',
         'major',
         'id_number',
         'contact',
-        'status'
+        'status',     // active | blocked
     ];
 
     public function borrowings()

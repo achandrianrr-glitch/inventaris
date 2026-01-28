@@ -2,8 +2,8 @@
 
 namespace App\Http\Middleware;
 
-use Illuminate\Http\Request;
 use App\Models\Notification;
+use Illuminate\Http\Request;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -30,32 +30,27 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
-        $shared = parent::share($request);
-
         $user = $request->user();
 
-        // Props auth tetap ada seperti kode kamu
-        $shared['auth'] = [
-            'user' => $user,
-        ];
+        return array_merge(parent::share($request), [
+            // JANGAN override 'auth' manual.
+            // parent::share() biasanya sudah menyertakan auth.user,
+            // jadi kita cukup tambah props baru di sini.
 
-        // Props notif global (muncul di semua halaman admin)
-        if ($user) {
-            $shared['unreadCount'] = Notification::query()
+            'unreadCount' => $user
+                ? Notification::query()
                 ->where('admin_id', $user->id)
                 ->where('is_read', false)
-                ->count();
+                ->count()
+                : 0,
 
-            $shared['notifications'] = Notification::query()
+            'notifications' => $user
+                ? Notification::query()
                 ->where('admin_id', $user->id)
                 ->latest('created_at')
                 ->limit(8)
-                ->get(['id', 'type', 'title', 'message', 'is_read', 'created_at']);
-        } else {
-            $shared['unreadCount'] = 0;
-            $shared['notifications'] = [];
-        }
-
-        return $shared;
+                ->get(['id', 'type', 'title', 'message', 'is_read', 'created_at'])
+                : [],
+        ]);
     }
 }
