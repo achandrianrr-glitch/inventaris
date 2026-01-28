@@ -1,19 +1,39 @@
 <script setup>
 import { computed } from "vue";
+import { Link } from "@inertiajs/vue3";
 import AdminLayout from "@/Layouts/AdminLayout.vue";
 
 defineOptions({ layout: AdminLayout });
 
 const props = defineProps({
-    kpi: Object,
-    latestItems: Array,
-    latestDamages: Array,
-    dueSoon: Array,
-    notifications: Array,
-    unreadCount: Number,
+    kpi: { type: Object, default: () => ({}) },
+    latestItems: { type: Array, default: () => [] },
+    latestDamages: { type: Array, default: () => [] },
+    dueSoon: { type: Array, default: () => [] },
+
+    // kalau kamu sudah share globally dari HandleInertiaRequests,
+    // props ini boleh tetap ada (tidak masalah)
+    notifications: { type: Array, default: () => [] },
+    unreadCount: { type: Number, default: 0 },
 });
 
 const k = computed(() => props.kpi || {});
+
+/**
+ * Format tanggal yang aman:
+ * - Prioritas pakai return_due_iso (ISO string yang pasti kebaca JS)
+ * - Fallback ke return_due kalau iso kosong
+ * - Kalau tetap invalid -> tampilkan '-'
+ */
+function formatDateTime(dueIso, dueRaw) {
+    const raw = dueIso || dueRaw;
+    if (!raw) return "-";
+
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) return "-";
+
+    return dt.toLocaleString();
+}
 </script>
 
 <template>
@@ -67,7 +87,7 @@ const k = computed(() => props.kpi || {});
                 <div class="panel">
                     <div class="panel-head">
                         <div class="fw-semibold">Barang Terbaru</div>
-                        <a class="btn btn-sm btn-outline-primary" href="/admin/items">Lihat Barang</a>
+                        <Link class="btn btn-sm btn-outline-primary" href="/admin/items">Lihat Barang</Link>
                     </div>
 
                     <!-- Desktop table -->
@@ -88,13 +108,14 @@ const k = computed(() => props.kpi || {});
                                     <tr v-for="it in latestItems" :key="it.id">
                                         <td class="fw-semibold">{{ it.code }}</td>
                                         <td>{{ it.name }}</td>
-                                        <td class="text-muted">{{ it.category?.name }}</td>
-                                        <td class="text-muted">{{ it.brand?.name }}</td>
-                                        <td class="text-muted">{{ it.location?.name }}</td>
+                                        <td class="text-muted">{{ it.category?.name ?? "-" }}</td>
+                                        <td class="text-muted">{{ it.brand?.name ?? "-" }}</td>
+                                        <td class="text-muted">{{ it.location?.name ?? "-" }}</td>
                                         <td class="text-end">
-                                            <span class="badge text-bg-light">{{ it.stock_available }}</span>
+                                            <span class="badge text-bg-light">{{ it.stock_available ?? 0 }}</span>
                                         </td>
                                     </tr>
+
                                     <tr v-if="latestItems.length === 0">
                                         <td colspan="6" class="text-muted p-3">Belum ada data barang.</td>
                                     </tr>
@@ -107,16 +128,19 @@ const k = computed(() => props.kpi || {});
                     <div class="d-md-none">
                         <div v-for="it in latestItems" :key="it.id" class="mini-card">
                             <div class="d-flex justify-content-between">
-                                <div>
-                                    <div class="fw-semibold">{{ it.name }}</div>
-                                    <div class="text-muted small">{{ it.code }} • {{ it.brand?.name }}</div>
+                                <div class="min-w-0">
+                                    <div class="fw-semibold text-truncate">{{ it.name }}</div>
+                                    <div class="text-muted small text-truncate">
+                                        {{ it.code }} • {{ it.brand?.name ?? "-" }}
+                                    </div>
                                 </div>
                                 <div class="text-end">
-                                    <div class="badge text-bg-primary">Stok {{ it.stock_available }}</div>
-                                    <div class="text-muted small">{{ it.location?.name }}</div>
+                                    <div class="badge text-bg-primary">Stok {{ it.stock_available ?? 0 }}</div>
+                                    <div class="text-muted small">{{ it.location?.name ?? "-" }}</div>
                                 </div>
                             </div>
                         </div>
+
                         <div v-if="latestItems.length === 0" class="text-muted p-2">Belum ada data barang.</div>
                     </div>
                 </div>
@@ -126,7 +150,7 @@ const k = computed(() => props.kpi || {});
                 <div class="panel">
                     <div class="panel-head">
                         <div class="fw-semibold">Ringkas Sistem</div>
-                        <a class="btn btn-sm btn-outline-secondary" href="/admin/reports/inventory">Laporan</a>
+                        <Link class="btn btn-sm btn-outline-secondary" href="/admin/reports/inventory">Laporan</Link>
                     </div>
 
                     <div class="p-3">
@@ -152,30 +176,33 @@ const k = computed(() => props.kpi || {});
                 <div class="panel mt-3">
                     <div class="panel-head">
                         <div class="fw-semibold">Jatuh Tempo Terdekat</div>
-                        <a class="btn btn-sm btn-outline-primary" href="/admin/borrowings">Monitoring</a>
+                        <Link class="btn btn-sm btn-outline-primary" href="/admin/borrowings">Monitoring</Link>
                     </div>
 
                     <div class="p-2">
                         <div v-for="b in dueSoon" :key="b.id" class="due-item">
                             <div class="d-flex justify-content-between">
-                                <div>
+                                <div class="min-w-0">
                                     <div class="fw-semibold text-truncate">
-                                        {{ b.borrower?.name }} — {{ b.item?.name }}
+                                        {{ b.borrower?.name ?? "-" }} — {{ b.item?.name ?? "-" }}
                                     </div>
                                     <div class="text-muted small">
-                                        {{ b.code }} • Qty {{ b.qty }}
+                                        {{ b.code }} • Qty {{ b.qty ?? 0 }}
                                     </div>
                                 </div>
+
                                 <div class="text-end">
                                     <div class="badge" :class="b.is_overdue ? 'text-bg-danger' : 'text-bg-warning'">
-                                        {{ b.is_overdue ? 'Overdue' : 'Soon' }}
+                                        {{ b.is_overdue ? "Overdue" : "Soon" }}
                                     </div>
+
                                     <div class="text-muted small">
-                                        {{ new Date(b.return_due).toLocaleString() }}
+                                        {{ formatDateTime(b.return_due_iso, b.return_due) }}
                                     </div>
                                 </div>
                             </div>
                         </div>
+
                         <div v-if="dueSoon.length === 0" class="text-muted p-2">Tidak ada pinjaman aktif.</div>
                     </div>
                 </div>
@@ -188,7 +215,7 @@ const k = computed(() => props.kpi || {});
                 <div class="panel">
                     <div class="panel-head">
                         <div class="fw-semibold">Kerusakan Terbaru</div>
-                        <a class="btn btn-sm btn-outline-danger" href="/admin/damages">Lihat Kerusakan</a>
+                        <Link class="btn btn-sm btn-outline-danger" href="/admin/damages">Lihat Kerusakan</Link>
                     </div>
 
                     <div class="table-responsive d-none d-md-block">
@@ -205,18 +232,23 @@ const k = computed(() => props.kpi || {});
                             <tbody>
                                 <tr v-for="d in latestDamages" :key="d.id">
                                     <td class="fw-semibold">{{ d.code }}</td>
-                                    <td>{{ d.item?.name }} <span class="text-muted">({{ d.item?.code }})</span></td>
                                     <td>
-                                        <span class="badge text-bg-light">{{ d.damage_level }}</span>
+                                        {{ d.item?.name ?? "-" }}
+                                        <span class="text-muted">({{ d.item?.code ?? "-" }})</span>
                                     </td>
                                     <td>
-                                        <span class="badge"
-                                            :class="d.status === 'completed' ? 'text-bg-success' : (d.status === 'in_progress' ? 'text-bg-primary' : 'text-bg-secondary')">
-                                            {{ d.status }}
+                                        <span class="badge text-bg-light">{{ d.damage_level ?? "-" }}</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge" :class="d.status === 'completed'
+                                            ? 'text-bg-success'
+                                            : (d.status === 'in_progress' ? 'text-bg-primary' : 'text-bg-secondary')">
+                                            {{ d.status ?? "-" }}
                                         </span>
                                     </td>
-                                    <td class="text-muted">{{ d.reported_date }}</td>
+                                    <td class="text-muted">{{ d.reported_date ?? "-" }}</td>
                                 </tr>
+
                                 <tr v-if="latestDamages.length === 0">
                                     <td colspan="5" class="text-muted p-3">Belum ada laporan kerusakan.</td>
                                 </tr>
@@ -227,22 +259,24 @@ const k = computed(() => props.kpi || {});
                     <div class="d-md-none p-2">
                         <div v-for="d in latestDamages" :key="d.id" class="mini-card">
                             <div class="d-flex justify-content-between">
-                                <div>
-                                    <div class="fw-semibold">{{ d.item?.name }}</div>
-                                    <div class="text-muted small">{{ d.code }} • {{ d.damage_level }}</div>
+                                <div class="min-w-0">
+                                    <div class="fw-semibold text-truncate">{{ d.item?.name ?? "-" }}</div>
+                                    <div class="text-muted small text-truncate">
+                                        {{ d.code }} • {{ d.damage_level ?? "-" }}
+                                    </div>
                                 </div>
                                 <div class="text-end">
-                                    <div class="badge text-bg-secondary">{{ d.status }}</div>
-                                    <div class="text-muted small">{{ d.reported_date }}</div>
+                                    <div class="badge text-bg-secondary">{{ d.status ?? "-" }}</div>
+                                    <div class="text-muted small">{{ d.reported_date ?? "-" }}</div>
                                 </div>
                             </div>
                         </div>
+
                         <div v-if="latestDamages.length === 0" class="text-muted p-2">Belum ada laporan kerusakan.</div>
                     </div>
                 </div>
             </div>
         </div>
-
     </div>
 </template>
 
@@ -285,7 +319,7 @@ const k = computed(() => props.kpi || {});
 
 .kpi-lbl {
     color: rgba(15, 23, 42, 0.65);
-    font-size: .9rem;
+    font-size: 0.9rem;
 }
 
 .panel {
@@ -336,5 +370,10 @@ const k = computed(() => props.kpi || {});
     border-radius: 16px;
     padding: 12px;
     margin: 10px;
+}
+
+/* util kecil buat text-truncate di container flex */
+.min-w-0 {
+    min-width: 0;
 }
 </style>

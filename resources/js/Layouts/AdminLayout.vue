@@ -5,7 +5,7 @@ import AdminSidebar from "@/Components/Admin/AdminSidebar.vue";
 import AdminTopbar from "@/Components/Admin/AdminTopbar.vue";
 
 const page = usePage();
-const url = computed(() => page.url);
+const url = computed(() => (page.url || '').split('?')[0]);
 
 const sidebarOpen = ref(false);
 

@@ -3,13 +3,14 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Borrower;
 use App\Models\Borrowing;
 use App\Models\Brand;
 use App\Models\Damage;
 use App\Models\Item;
-use App\Models\Borrower;
 use App\Models\Notification;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -18,6 +19,11 @@ class DashboardController extends Controller
     public function index(Request $request): Response
     {
         $admin = $request->user();
+
+        // Guard extra (harusnya sudah aman karena middleware auth)
+        if (!$admin) {
+            abort(403);
+        }
 
         $kpi = [
             'item_types'      => Item::query()->count(),
@@ -31,7 +37,17 @@ class DashboardController extends Controller
         ];
 
         $latestItems = Item::query()
-            ->select(['id', 'code', 'name', 'category_id', 'brand_id', 'location_id', 'stock_available', 'status', 'created_at'])
+            ->select([
+                'id',
+                'code',
+                'name',
+                'category_id',
+                'brand_id',
+                'location_id',
+                'stock_available',
+                'status',
+                'created_at'
+            ])
             ->with([
                 'category:id,name',
                 'brand:id,name',
@@ -62,10 +78,18 @@ class DashboardController extends Controller
             ->limit(6)
             ->get()
             ->map(function ($b) {
-                $b->is_overdue = now()->greaterThan($b->return_due);
+                // Normalisasi return_due supaya aman dipakai di JS (new Date)
+                $due = $b->return_due ? Carbon::parse($b->return_due) : null;
+
+                $b->return_due_iso = $due ? $due->toISOString() : null;
+                $b->is_overdue = $due ? now()->greaterThan($due) : false;
+
                 return $b;
             });
 
+        // NOTE:
+        // Kalau nanti kamu sudah share notifications/unreadCount secara GLOBAL via HandleInertiaRequests,
+        // bagian ini bisa kamu hapus agar tidak double query.
         $notifications = Notification::query()
             ->where('admin_id', $admin->id)
             ->latest('created_at')
