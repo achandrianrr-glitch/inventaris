@@ -7,7 +7,9 @@ use App\Http\Requests\Admin\TransactionInStoreRequest;
 use App\Models\Item;
 use App\Models\Transaction;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -17,10 +19,10 @@ class TransactionInController extends Controller
     public function index(Request $request): Response
     {
         $filters = [
-            'search' => trim((string)$request->query('search', '')),
-            'item_id' => $request->query('item_id', ''),
-            'date_from' => $request->query('date_from', ''),
-            'date_to' => $request->query('date_to', ''),
+            'search'    => trim((string) $request->query('search', '')),
+            'item_id'   => (string) $request->query('item_id', ''),
+            'date_from' => (string) $request->query('date_from', ''),
+            'date_to'   => (string) $request->query('date_to', ''),
         ];
 
         $q = Transaction::query()
@@ -40,29 +42,37 @@ class TransactionInController extends Controller
                 'admin_id',
                 'notes',
                 'status',
-                'created_at'
+                'created_at',
             ]);
 
         if ($filters['search'] !== '') {
             $s = $filters['search'];
+
             $q->where(function (Builder $x) use ($s) {
                 $x->where('code', 'like', "%{$s}%")
-                    ->orWhereHas('item', fn($iq) => $iq->where('name', 'like', "%{$s}%")->orWhere('code', 'like', "%{$s}%"));
+                    ->orWhereHas('item', function ($iq) use ($s) {
+                        $iq->where('name', 'like', "%{$s}%")
+                            ->orWhere('code', 'like', "%{$s}%");
+                    });
             });
         }
 
         if ($filters['item_id'] !== '') {
-            $q->where('item_id', (int)$filters['item_id']);
+            $q->where('item_id', (int) $filters['item_id']);
         }
 
         if ($filters['date_from'] !== '') {
             $q->whereDate('transaction_date', '>=', $filters['date_from']);
         }
+
         if ($filters['date_to'] !== '') {
             $q->whereDate('transaction_date', '<=', $filters['date_to']);
         }
 
-        $transactions = $q->orderByDesc('transaction_date')->orderByDesc('id')->paginate(10)->withQueryString();
+        $transactions = $q->orderByDesc('transaction_date')
+            ->orderByDesc('id')
+            ->paginate(10)
+            ->withQueryString();
 
         return Inertia::render('Admin/Transactions/In/Index', [
             'transactions' => $transactions,
@@ -93,27 +103,30 @@ class TransactionInController extends Controller
             $next = $num + 1;
         }
 
-        return $prefix . str_pad((string)$next, 4, '0', STR_PAD_LEFT);
+        return $prefix . str_pad((string) $next, 4, '0', STR_PAD_LEFT);
     }
 
-    public function store(TransactionInStoreRequest $request)
+    public function store(TransactionInStoreRequest $request): RedirectResponse
     {
         $data = $request->validated();
 
-        $adminId = (int) auth()->id();
+        // ✅ ganti auth()->id() supaya IDE tidak merah
+        $adminId = (int) Auth::id();
 
         return DB::transaction(function () use ($data, $adminId) {
             /** @var \App\Models\Item $item */
-            $item = Item::lockForUpdate()->findOrFail((int)$data['item_id']);
+            $item = Item::query()
+                ->lockForUpdate()
+                ->findOrFail((int) $data['item_id']);
 
-            $qty = (int)$data['qty'];
+            $qty = (int) $data['qty'];
 
             // update stok (barang masuk)
-            $item->stock_total = (int)$item->stock_total + $qty;
-            $item->stock_available = (int)$item->stock_available + $qty;
+            $item->stock_total = (int) $item->stock_total + $qty;
+            $item->stock_available = (int) $item->stock_available + $qty;
             $item->save();
 
-            Transaction::create([
+            Transaction::query()->create([
                 'code' => $this->generateCode(),
                 'type' => 'in',
                 'item_id' => $item->id,

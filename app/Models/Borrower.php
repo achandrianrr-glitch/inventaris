@@ -23,5 +23,6 @@ class Borrower extends Model
     public function borrowings()
     {
         return $this->hasMany(Borrowing::class);
+        return $this->hasMany(\App\Models\Borrowing::class);
     }
 }
