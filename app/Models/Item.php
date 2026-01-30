@@ -33,12 +33,24 @@ class Item extends Model
             'purchase_price' => 'decimal:2',
             'purchase_year' => 'integer',
 
-            // opsional tapi aman: biar angka stok kebaca integer konsisten
             'stock_total' => 'integer',
             'stock_available' => 'integer',
             'stock_borrowed' => 'integer',
             'stock_damaged' => 'integer',
+
+            // opsional: biar konsisten tipe
+            'condition' => 'string',
+            'status' => 'string',
         ];
+    }
+
+    /**
+     * ✅ Helper biar query Item aktif rapi
+     * (SoftDeletes otomatis sudah exclude trashed)
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('status', 'active');
     }
 
     public function category()

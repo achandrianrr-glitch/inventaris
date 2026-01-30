@@ -5,13 +5,12 @@ import AdminSidebar from "@/Components/Admin/AdminSidebar.vue";
 import AdminTopbar from "@/Components/Admin/AdminTopbar.vue";
 
 const page = usePage();
-const url = computed(() => (page.url || '').split('?')[0]);
+const url = computed(() => (page.url || "").split("?")[0]);
 
 const sidebarOpen = ref(false);
 
 watch(url, () => {
-    // auto close drawer on navigation (mobile)
-    sidebarOpen.value = false;
+    sidebarOpen.value = false; // auto close drawer on navigation (mobile)
 });
 
 function toggleSidebar() {
@@ -26,6 +25,11 @@ const unreadCount = computed(() => page.props.unreadCount ?? 0);
 const notifications = computed(() => page.props.notifications ?? []);
 
 function markAllRead() {
+    // ✅ kalau Ziggy ada, pakai route() supaya gak hardcode url
+    if (typeof route === "function") {
+        router.patch(route("admin.notifications.markAllRead"), {}, { preserveScroll: true });
+        return;
+    }
     router.patch("/admin/notifications/read-all", {}, { preserveScroll: true });
 }
 </script>
@@ -54,10 +58,10 @@ function markAllRead() {
             </main>
 
             <footer class="admin-footer">
-                <div class="text-muted small">
-                    Sistem Inventaris Lab Sekolah • Admin Panel
-                </div>
-                <Link class="btn btn-sm btn-outline-secondary" method="post" as="button" href="/logout">
+                <div class="text-muted small">Sistem Inventaris Lab Sekolah • Admin Panel</div>
+
+                <Link class="btn btn-sm btn-outline-secondary" method="post" as="button"
+                    :href="typeof route === 'function' ? route('logout') : '/logout'">
                     Logout
                 </Link>
             </footer>
@@ -136,7 +140,7 @@ function markAllRead() {
 
     .admin-sidebar.open {
         transform: translateX(0);
-        box-shadow: 0 18px 45px rgba(2, 6, 23, 0.20);
+        box-shadow: 0 18px 45px rgba(2, 6, 23, 0.2);
     }
 }
 

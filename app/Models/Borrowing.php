@@ -25,15 +25,11 @@ class Borrowing extends Model
         'notes'
     ];
 
-    protected function casts(): array
-    {
-        return [
-            'borrow_date' => 'date',
-            'borrow_time' => 'string',
-            'return_due' => 'datetime',
-            'return_date' => 'datetime',
-        ];
-    }
+    protected $casts = [
+        'borrow_date' => 'date',
+        'return_due' => 'datetime',
+        'return_date' => 'datetime',
+    ];
 
     public function borrower()
     {
