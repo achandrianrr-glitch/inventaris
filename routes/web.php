@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\BorrowerController;
 use App\Http\Controllers\Admin\BorrowingController; // ✅ Tahap 12
 use App\Http\Controllers\Admin\ReturnController;
 use App\Http\Controllers\Admin\DamageController;
+use App\Http\Controllers\Admin\StockOpnameController; // ✅ Tahap 15
 use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\ItemController;
@@ -131,28 +132,53 @@ Route::middleware(['auth', 'verified', 'active'])
 
         /**
          * ✅ Tahap 12 — Borrowings (REAL ✅✅✅)
-         * - menggantikan placeholder /borrowings
+         * NOTE: di dalam group admin. jangan pakai admin.borrowings (biar tidak jadi admin.admin.borrowings)
          */
-        Route::get('/borrowings', [BorrowingController::class, 'index'])->name('admin.borrowings');
-        Route::post('/borrowings', [BorrowingController::class, 'store'])->name('admin.borrowings.store');
-
-        Route::get('/returns', [ReturnController::class, 'index'])->name('admin.returns');
-        Route::post('/returns', [ReturnController::class, 'store'])->name('admin.returns.store');
-
-        // endpoint untuk load pinjaman aktif (peminjam dipilih)
-        Route::get('/returns/active-borrowings', [ReturnController::class, 'activeBorrowings'])->name('admin.returns.activeBorrowings');
-
-        Route::get('/damages', [DamageController::class, 'index'])->name('admin.damages');
-        Route::post('/damages', [DamageController::class, 'store'])->name('admin.damages.store');
-        Route::patch('/damages/{damage}', [DamageController::class, 'update'])->name('admin.damages.update');
+        Route::get('/borrowings', [BorrowingController::class, 'index'])->name('borrowings');
+        Route::post('/borrowings', [BorrowingController::class, 'store'])->name('borrowings.store');
 
         /**
-         * PLACEHOLDER pages (Tahap 13+ / lainnya)
+         * ✅ Tahap 13 — Returns (Pengembalian)
          */
+        Route::get('/returns', [ReturnController::class, 'index'])->name('returns');
+        Route::post('/returns', [ReturnController::class, 'store'])->name('returns.store');
+        Route::get('/returns/active-borrowings', [ReturnController::class, 'activeBorrowings'])->name('returns.activeBorrowings');
 
-        Route::get('/opnames', fn() => Inertia::render('Admin/ComingSoon', ['title' => 'Stock Opname']))
-            ->name('opnames');
+        /**
+         * ✅ Tahap 14 — Damages (Kerusakan)
+         */
+        Route::get('/damages', [DamageController::class, 'index'])->name('damages');
+        Route::post('/damages', [DamageController::class, 'store'])->name('damages.store');
+        Route::patch('/damages/{damage}', [DamageController::class, 'update'])->name('damages.update');
 
+        /**
+         * ✅ Tahap 15 — Stock Opname (REAL ✅✅✅)
+         * - menggantikan placeholder /opnames
+         * - URL utama: /admin/stock-opnames
+         */
+        Route::get('/stock-opnames', [StockOpnameController::class, 'index'])->name('stock_opnames');
+        Route::post('/stock-opnames', [StockOpnameController::class, 'store'])->name('stock_opnames.store');
+
+        Route::get('/stock-opnames/items', [StockOpnameController::class, 'itemsByLocation'])->name('stock_opnames.items');
+
+        Route::get('/stock-opnames/review', [StockOpnameController::class, 'review'])->name('stock_opnames.review');
+        Route::patch('/stock-opnames/{stockOpname}/approve', [StockOpnameController::class, 'approve'])->name('stock_opnames.approve');
+
+        Route::get('/stock-opnames/export/csv', [StockOpnameController::class, 'exportCsv'])->name('stock_opnames.export_csv');
+
+        /**
+         * ✅ OPTIONAL: Alias supaya URL lama /admin/opnames tidak 404
+         * (kalau sidebar kamu masih pakai /admin/opnames)
+         */
+        Route::redirect('/opnames', '/admin/stock-opnames')->name('opnames');
+        Route::redirect('/opnames/review', '/admin/stock-opnames/review');
+        Route::redirect('/opnames/items', '/admin/stock-opnames/items');
+        Route::redirect('/opnames/export/csv', '/admin/stock-opnames/export/csv');
+        Route::patch('/opnames/{stockOpname}/approve', [StockOpnameController::class, 'approve']);
+
+        /**
+         * PLACEHOLDER pages (Tahap 16+ / lainnya)
+         */
         Route::get('/notifications', fn() => Inertia::render('Admin/ComingSoon', ['title' => 'Notifikasi']))
             ->name('notifications');
 
