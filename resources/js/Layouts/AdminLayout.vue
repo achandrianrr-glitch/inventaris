@@ -1,12 +1,15 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, onMounted, onUnmounted } from "vue";
 import { Link, usePage, router } from "@inertiajs/vue3";
+import axios from "axios";
+
 import AdminSidebar from "@/Components/Admin/AdminSidebar.vue";
 import AdminTopbar from "@/Components/Admin/AdminTopbar.vue";
 
 const page = usePage();
 const url = computed(() => (page.url || "").split("?")[0]);
 
+// ===== Sidebar drawer (mobile)
 const sidebarOpen = ref(false);
 
 watch(url, () => {
@@ -21,13 +24,42 @@ function closeSidebar() {
     sidebarOpen.value = false;
 }
 
-const unreadCount = computed(() => page.props.unreadCount ?? 0);
+// ===== Notifications
+// fallback: kalau backend belum share unreadCount di props, kita polling API
+const unread = ref(0);
+let timer = null;
+
+const unreadCount = computed(() => {
+    // prioritas: server props -> polling state
+    return page.props.unreadCount ?? unread.value ?? 0;
+});
+
 const notifications = computed(() => page.props.notifications ?? []);
 
+async function fetchUnread() {
+    try {
+        const res = await axios.get("/admin/notifications/unread-count");
+        unread.value = res.data?.unread_count ?? 0;
+    } catch (e) {
+        // diamkan biar tidak spam error di UI
+    }
+}
+
+onMounted(() => {
+    fetchUnread();
+    timer = setInterval(fetchUnread, 45000); // 45 detik
+});
+
+onUnmounted(() => {
+    if (timer) clearInterval(timer);
+});
+
 function markAllRead() {
-    // ✅ kalau Ziggy ada, pakai route() supaya gak hardcode url
+    // kalau Ziggy route() tersedia, pakai route name, kalau tidak hardcode
     if (typeof route === "function") {
-        router.patch(route("admin.notifications.markAllRead"), {}, { preserveScroll: true });
+        // NOTE: pastikan nama route sesuai project kamu.
+        // dari tahap 16: admin.notifications.read_all
+        router.patch(route("admin.notifications.read_all"), {}, { preserveScroll: true });
         return;
     }
     router.patch("/admin/notifications/read-all", {}, { preserveScroll: true });

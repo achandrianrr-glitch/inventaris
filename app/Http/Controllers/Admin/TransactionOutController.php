@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\TransactionOutStoreRequest;
 use App\Models\Item;
 use App\Models\Transaction;
+use App\Support\StockAlert;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -149,6 +150,8 @@ class TransactionOutController extends Controller
             // update stok (barang keluar)
             $item->stock_available = (int) $item->stock_available - $qty;
             $item->save();
+
+            StockAlert::lowStock($item, $adminId, 5);
 
             Transaction::query()->create([
                 'code' => $this->generateCode(),

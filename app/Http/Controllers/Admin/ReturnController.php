@@ -8,6 +8,7 @@ use App\Models\Borrower;
 use App\Models\Borrowing;
 use App\Models\Damage;
 use App\Models\Item;
+use App\Support\StockAlert;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -197,6 +198,8 @@ class ReturnController extends Controller
                 $item->stock_borrowed  = max(0, (int) $item->stock_borrowed - $qty);
                 $item->save();
 
+                StockAlert::lowStock($item, $adminId, 5);
+
                 $borrowing->update([
                     'return_date' => $returnDate,
                     'return_condition' => 'normal',
@@ -208,6 +211,8 @@ class ReturnController extends Controller
                 $item->stock_damaged  = (int) $item->stock_damaged + $qty;
                 $item->stock_borrowed = max(0, (int) $item->stock_borrowed - $qty);
                 $item->save();
+
+                StockAlert::lowStock($item, $adminId, 5);
 
                 $borrowing->update([
                     'return_date' => $returnDate,
@@ -234,6 +239,8 @@ class ReturnController extends Controller
                 $item->stock_borrowed = max(0, (int) $item->stock_borrowed - $qty);
                 $item->save();
 
+                StockAlert::lowStock($item, $adminId, 5);
+
                 $borrowing->update([
                     'return_date' => $returnDate,
                     'return_condition' => 'lost',
@@ -247,7 +254,7 @@ class ReturnController extends Controller
                 // intentionally no-op
             }
 
-            return back()->with('success', 'Pengembalian berhasil diproses.');
+            return back()->with('success', 'Pengembalian valid.');
         });
     }
 }

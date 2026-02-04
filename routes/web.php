@@ -1,19 +1,23 @@
 <?php
 
+use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\BrandController;
 use App\Http\Controllers\Admin\BorrowerController;
-use App\Http\Controllers\Admin\BorrowingController; // ✅ Tahap 12
-use App\Http\Controllers\Admin\ReturnController;
-use App\Http\Controllers\Admin\DamageController;
-use App\Http\Controllers\Admin\StockOpnameController; // ✅ Tahap 15
+use App\Http\Controllers\Admin\BorrowingController;
 use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\DamageController;
 use App\Http\Controllers\Admin\ItemController;
 use App\Http\Controllers\Admin\LocationController;
 use App\Http\Controllers\Admin\NotificationController;
+use App\Http\Controllers\Admin\ReportController;
+use App\Http\Controllers\Admin\ReturnController;
+use App\Http\Controllers\Admin\StockOpnameController;
 use App\Http\Controllers\Admin\TransactionInController;
 use App\Http\Controllers\Admin\TransactionOutController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Middleware\EnsureUserIsActive;
+
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -21,7 +25,7 @@ use Inertia\Inertia;
 
 /**
  * HOME
- * - Guest: Welcome (breeze)
+ * - Guest: Welcome (Breeze)
  * - Auth: redirect ke admin dashboard
  */
 Route::get('/', function () {
@@ -43,12 +47,12 @@ Route::get('/', function () {
  */
 Route::get('/dashboard', function () {
     return redirect()->route('admin.dashboard');
-})->middleware(['auth', 'verified', 'active'])->name('dashboard');
+})->middleware(['auth', 'verified', EnsureUserIsActive::class])->name('dashboard');
 
 /**
  * ADMIN AREA
  */
-Route::middleware(['auth', 'verified', 'active'])
+Route::middleware(['auth', 'verified', EnsureUserIsActive::class])
     ->prefix('admin')
     ->name('admin.')
     ->group(function () {
@@ -56,12 +60,13 @@ Route::middleware(['auth', 'verified', 'active'])
         // Dashboard
         Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
 
-        // Notification actions (PATCH)
-        Route::patch('/notifications/{notification}/read', [NotificationController::class, 'markRead'])
-            ->name('notifications.markRead');
-
-        Route::patch('/notifications/read-all', [NotificationController::class, 'markAllRead'])
-            ->name('notifications.markAllRead');
+        /**
+         * ✅ Tahap 16 — Notifications
+         */
+        Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications');
+        Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount'])->name('notifications.unread_count');
+        Route::patch('/notifications/{notification}/read', [NotificationController::class, 'markRead'])->name('notifications.read');
+        Route::patch('/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('notifications.read_all');
 
         /**
          * ✅ Tahap 5 — Categories
@@ -124,15 +129,12 @@ Route::middleware(['auth', 'verified', 'active'])
         Route::get('/transactions/out', [TransactionOutController::class, 'index'])->name('transactions.out');
         Route::post('/transactions/out', [TransactionOutController::class, 'store'])->name('transactions.out.store');
 
-        /**
-         * ✅ Alias route lama (opsional)
-         */
-        Route::redirect('/trx/out', '/admin/transactions/out')->name('trx.out');
-        Route::redirect('/trx/in', '/admin/transactions/in')->name('trx.in');
+        // Alias route lama (opsional)
+        Route::redirect('/trx/out', '/admin/transactions/out');
+        Route::redirect('/trx/in', '/admin/transactions/in');
 
         /**
-         * ✅ Tahap 12 — Borrowings (REAL ✅✅✅)
-         * NOTE: di dalam group admin. jangan pakai admin.borrowings (biar tidak jadi admin.admin.borrowings)
+         * ✅ Tahap 12 — Borrowings
          */
         Route::get('/borrowings', [BorrowingController::class, 'index'])->name('borrowings');
         Route::post('/borrowings', [BorrowingController::class, 'store'])->name('borrowings.store');
@@ -152,13 +154,10 @@ Route::middleware(['auth', 'verified', 'active'])
         Route::patch('/damages/{damage}', [DamageController::class, 'update'])->name('damages.update');
 
         /**
-         * ✅ Tahap 15 — Stock Opname (REAL ✅✅✅)
-         * - menggantikan placeholder /opnames
-         * - URL utama: /admin/stock-opnames
+         * ✅ Tahap 15 — Stock Opname
          */
         Route::get('/stock-opnames', [StockOpnameController::class, 'index'])->name('stock_opnames');
         Route::post('/stock-opnames', [StockOpnameController::class, 'store'])->name('stock_opnames.store');
-
         Route::get('/stock-opnames/items', [StockOpnameController::class, 'itemsByLocation'])->name('stock_opnames.items');
 
         Route::get('/stock-opnames/review', [StockOpnameController::class, 'review'])->name('stock_opnames.review');
@@ -166,34 +165,59 @@ Route::middleware(['auth', 'verified', 'active'])
 
         Route::get('/stock-opnames/export/csv', [StockOpnameController::class, 'exportCsv'])->name('stock_opnames.export_csv');
 
-        /**
-         * ✅ OPTIONAL: Alias supaya URL lama /admin/opnames tidak 404
-         * (kalau sidebar kamu masih pakai /admin/opnames)
-         */
-        Route::redirect('/opnames', '/admin/stock-opnames')->name('opnames');
+        // OPTIONAL alias supaya URL lama /admin/opnames tidak 404
+        Route::redirect('/opnames', '/admin/stock-opnames');
         Route::redirect('/opnames/review', '/admin/stock-opnames/review');
         Route::redirect('/opnames/items', '/admin/stock-opnames/items');
         Route::redirect('/opnames/export/csv', '/admin/stock-opnames/export/csv');
-        Route::patch('/opnames/{stockOpname}/approve', [StockOpnameController::class, 'approve']);
 
         /**
-         * PLACEHOLDER pages (Tahap 16+ / lainnya)
+         * ✅ Tahap 17 — Reports (Excel/PDF)
          */
-        Route::get('/notifications', fn() => Inertia::render('Admin/ComingSoon', ['title' => 'Notifikasi']))
-            ->name('notifications');
+        Route::get('/reports', [ReportController::class, 'index'])->name('reports');
 
-        Route::get('/reports/inventory', fn() => Inertia::render('Admin/ComingSoon', ['title' => 'Laporan Inventaris']))
-            ->name('reports.inventory');
+        // ✅ FIX: Halaman submenu laporan (biar link sidebar tidak 404)
+        Route::get('/reports/inventory', fn() => redirect('/admin/reports?tab=inventory'))->name('reports.inventory');
+        Route::get('/reports/transactions', fn() => redirect('/admin/reports?tab=transactions'))->name('reports.transactions');
+        Route::get('/reports/damages', fn() => redirect('/admin/reports?tab=damages'))->name('reports.damages');
 
-        Route::get('/reports/transactions', fn() => Inertia::render('Admin/ComingSoon', ['title' => 'Laporan Transaksi']))
-            ->name('reports.transactions');
+        // Excel (single report)
+        Route::get('/reports/inventory/excel', [ReportController::class, 'inventoryExcel'])->name('reports.inventory_excel');
+        Route::get('/reports/transactions/excel', [ReportController::class, 'transactionsExcel'])->name('reports.transactions_excel');
+        Route::get('/reports/damages/excel', [ReportController::class, 'damagesExcel'])->name('reports.damages_excel');
+        Route::get('/reports/borrowings/excel', [ReportController::class, 'borrowingsExcel'])->name('reports.borrowings_excel');
 
-        Route::get('/reports/damages', fn() => Inertia::render('Admin/ComingSoon', ['title' => 'Laporan Kerusakan']))
-            ->name('reports.damages');
+        // Excel (multi-sheet workbook)
+        Route::get('/reports/workbook/excel', [ReportController::class, 'workbookExcel'])->name('reports.workbook_excel');
 
-        Route::get('/system/users', fn() => Inertia::render('Admin/ComingSoon', ['title' => 'Data Pengguna']))
-            ->name('system.users');
+        // PDF
+        Route::get('/reports/inventory/pdf', [ReportController::class, 'inventoryPdf'])->name('reports.inventory_pdf');
+        Route::get('/reports/transactions/pdf', [ReportController::class, 'transactionsPdf'])->name('reports.transactions_pdf');
+        Route::get('/reports/damages/pdf', [ReportController::class, 'damagesPdf'])->name('reports.damages_pdf');
+        Route::get('/reports/borrowings/pdf', [ReportController::class, 'borrowingsPdf'])->name('reports.borrowings_pdf');
 
+        /**
+         * ✅ Tahap 18 — Data Pengguna (Admin Users)
+         */
+        Route::get('/users', [AdminUserController::class, 'index'])->name('users');
+
+        Route::post('/users', [AdminUserController::class, 'store'])->name('users.store');
+        Route::patch('/users/{user}', [AdminUserController::class, 'update'])->name('users.update');
+
+        Route::patch('/users/{user}/reset-password', [AdminUserController::class, 'resetPassword'])->name('users.reset_password');
+        Route::patch('/users/{user}/toggle-status', [AdminUserController::class, 'toggleStatus'])->name('users.toggle_status');
+
+        Route::delete('/users/{user}', [AdminUserController::class, 'destroy'])->name('users.destroy');
+        Route::patch('/users/{user}/restore', [AdminUserController::class, 'restore'])
+            ->withTrashed()
+            ->name('users.restore');
+
+        // ✅ Backward compatible: link lama /admin/system/users diarahkan ke /admin/users
+        Route::redirect('/system/users', '/admin/users')->name('system.users');
+
+        /**
+         * PLACEHOLDER pages (Tahap 19+ / lainnya)
+         */
         Route::get('/system/settings', fn() => Inertia::render('Admin/ComingSoon', ['title' => 'Pengaturan']))
             ->name('system.settings');
 
@@ -204,7 +228,7 @@ Route::middleware(['auth', 'verified', 'active'])
 /**
  * PROFILE (bawaan Breeze)
  */
-Route::middleware(['auth', 'active'])->group(function () {
+Route::middleware(['auth', EnsureUserIsActive::class])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');

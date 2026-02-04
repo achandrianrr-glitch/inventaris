@@ -7,6 +7,7 @@ use App\Http\Requests\Admin\StockOpnameStoreRequest;
 use App\Models\Item;
 use App\Models\Location;
 use App\Models\StockOpname;
+use App\Services\NotificationService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -43,14 +44,15 @@ class StockOpnameController extends Controller
                 'validation',
                 'admin_id',
                 'notes',
-                'created_at'
+                'created_at',
             ]);
 
         if ($filters['search'] !== '') {
             $s = $filters['search'];
             $q->where(function (Builder $x) use ($s) {
                 $x->where('code', 'like', "%{$s}%")
-                    ->orWhereHas('item', fn($iq) => $iq->where('name', 'like', "%{$s}%")->orWhere('code', 'like', "%{$s}%"));
+                    ->orWhereHas('item', fn($iq) => $iq->where('name', 'like', "%{$s}%")
+                        ->orWhere('code', 'like', "%{$s}%"));
             });
         }
 
@@ -81,14 +83,23 @@ class StockOpnameController extends Controller
         $items = Item::query()
             ->where('location_id', $locId)
             ->orderBy('name')
-            ->get(['id', 'code', 'name', 'location_id', 'stock_total', 'stock_available', 'stock_borrowed', 'stock_damaged', 'status']);
+            ->get([
+                'id',
+                'code',
+                'name',
+                'location_id',
+                'stock_total',
+                'stock_available',
+                'stock_borrowed',
+                'stock_damaged',
+                'status',
+            ]);
 
         return response()->json($items);
     }
 
     private function generateCode(): string
     {
-        // contoh: OPN260130-0001
         $prefix = 'OPN' . date('ymd') . '-';
 
         $last = StockOpname::query()
@@ -112,11 +123,25 @@ class StockOpnameController extends Controller
         $adminId = (int) auth()->id();
         $code = $this->generateCode();
 
-        return DB::transaction(function () use ($data, $adminId, $code) {
+        $locationId = (int)$data['location_id'];
+        $opnameDate = Carbon::parse($data['opname_date'])->toDateString();
+        $notes = $data['notes'] ?? null;
 
-            $locationId = (int)$data['location_id'];
-            $opnameDate = Carbon::parse($data['opname_date'])->toDateString();
-            $notes = $data['notes'] ?? null;
+        // ✅ VALIDASI AWAL: semua item harus milik lokasi yang dipilih
+        $itemIds = array_map(fn($x) => (int)$x['item_id'], $data['lines']);
+        $hasMismatch = Item::query()
+            ->whereIn('id', $itemIds)
+            ->where('location_id', '!=', $locationId)
+            ->exists();
+
+        if ($hasMismatch) {
+            return back()->withErrors(['location_id' => 'Ada item yang tidak sesuai lokasi dipilih.']);
+        }
+
+        return DB::transaction(function () use ($data, $adminId, $code, $locationId, $opnameDate, $notes) {
+
+            $hasDiscrepancy = false;
+            $batchReferenceId = null; // anchor notif (BIGINT)
 
             foreach ($data['lines'] as $line) {
                 $itemId = (int)$line['item_id'];
@@ -125,18 +150,17 @@ class StockOpnameController extends Controller
                 /** @var \App\Models\Item $item */
                 $item = Item::lockForUpdate()->findOrFail($itemId);
 
-                // pastikan item sesuai lokasi yang dipilih
-                if ((int)$item->location_id !== $locationId) {
-                    return back()->withErrors(['location_id' => 'Ada item yang tidak sesuai lokasi dipilih.']);
-                }
-
                 $system = (int)$item->stock_total; // stok sistem
                 $diff = $physical - $system;
 
                 $status = ($diff === 0) ? 'normal' : 'discrepancy';
                 $validation = ($diff === 0) ? 'matched' : 'review';
 
-                StockOpname::create([
+                if ($diff !== 0) {
+                    $hasDiscrepancy = true;
+                }
+
+                $created = StockOpname::create([
                     'code' => $code,
                     'opname_date' => $opnameDate,
                     'item_id' => $item->id,
@@ -148,6 +172,23 @@ class StockOpnameController extends Controller
                     'admin_id' => $adminId,
                     'notes' => $notes,
                 ]);
+
+                // simpan anchor id untuk notif (cukup sekali)
+                if ($batchReferenceId === null) {
+                    $batchReferenceId = (int)$created->id;
+                }
+            }
+
+            // ✅ NOTIF: hanya jika ada discrepancy
+            if ($hasDiscrepancy) {
+                app(NotificationService::class)->createForAdmin(
+                    $adminId,
+                    'opname',
+                    'Opname ada selisih',
+                    "Terdapat selisih stock pada batch opname {$code}. Silakan buka menu Review Selisih.",
+                    'stock_opname',
+                    $batchReferenceId
+                );
             }
 
             return back()->with('success', "Stock opname berhasil disimpan. Kode batch: {$code}");
@@ -182,13 +223,14 @@ class StockOpnameController extends Controller
                 'validation',
                 'admin_id',
                 'notes',
-                'created_at'
+                'created_at',
             ]);
 
         if ($filters['location_id'] !== '') {
             $loc = (int)$filters['location_id'];
             $q->whereHas('item', fn($iq) => $iq->where('location_id', $loc));
         }
+
         if ($filters['date_from'] !== '') $q->whereDate('opname_date', '>=', $filters['date_from']);
         if ($filters['date_to'] !== '') $q->whereDate('opname_date', '<=', $filters['date_to']);
 
@@ -218,7 +260,6 @@ class StockOpnameController extends Controller
             /** @var \App\Models\Item $item */
             $item = Item::lockForUpdate()->findOrFail((int)$opn->item_id);
 
-            // Validasi penting: stok fisik tidak boleh lebih kecil dari (borrowed + damaged)
             $minRequired = (int)$item->stock_borrowed + (int)$item->stock_damaged;
             if ((int)$opn->physical_stock < $minRequired) {
                 return back()->withErrors([
@@ -226,7 +267,6 @@ class StockOpnameController extends Controller
                 ]);
             }
 
-            // Apply adjustment (menyamakan sistem ke fisik)
             $item->stock_total = (int)$opn->physical_stock;
             $item->stock_available = (int)$item->stock_total - (int)$item->stock_borrowed - (int)$item->stock_damaged;
             if ((int)$item->stock_available < 0) $item->stock_available = 0;

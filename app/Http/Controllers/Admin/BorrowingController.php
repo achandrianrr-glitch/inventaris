@@ -7,6 +7,7 @@ use App\Http\Requests\Admin\BorrowingStoreRequest;
 use App\Models\Borrower;
 use App\Models\Borrowing;
 use App\Models\Item;
+use App\Support\StockAlert;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -185,6 +186,8 @@ class BorrowingController extends Controller
             $item->stock_available = (int) $item->stock_available - $qty;
             $item->stock_borrowed  = (int) $item->stock_borrowed + $qty;
             $item->save();
+
+            StockAlert::lowStock($item, $adminId, 5);
 
             Borrowing::query()->create([
                 'code' => $this->generateCode(),
