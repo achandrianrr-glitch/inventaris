@@ -46,12 +46,15 @@ class AdminUserController extends Controller
     {
         $data = $request->validated();
 
-        User::create([
+        $user = User::create([
             'name' => $data['name'],
             'email' => strtolower($data['email']),
             'password' => Hash::make($data['password']),
             'status' => $data['status'],
         ]);
+
+        // LOG AKTIVITAS
+        activity_log('users', 'create', "Tambah admin: {$user->email} (ID: {$user->id}) | status={$user->status}");
 
         return back()->with('success', 'Admin baru berhasil ditambahkan.');
     }
@@ -62,6 +65,12 @@ class AdminUserController extends Controller
             return back()->withErrors(['update' => 'User sudah dihapus (soft delete). Restore dulu jika ingin edit.']);
         }
 
+        $before = [
+            'name' => $user->name,
+            'email' => $user->email,
+            'status' => $user->status,
+        ];
+
         $data = $request->validated();
 
         $user->update([
@@ -69,6 +78,27 @@ class AdminUserController extends Controller
             'email' => strtolower($data['email']),
             'status' => $data['status'],
         ]);
+
+        $after = [
+            'name' => $user->name,
+            'email' => $user->email,
+            'status' => $user->status,
+        ];
+
+        $changes = [];
+        foreach ($before as $k => $v) {
+            if (($after[$k] ?? null) !== $v) {
+                $changes[] = "{$k}: " . ($v ?? '-') . " → " . ($after[$k] ?? '-');
+            }
+        }
+
+        $desc = "Update admin: {$user->email} (ID: {$user->id})";
+        if (!empty($changes)) {
+            $desc .= " | " . implode(' | ', $changes);
+        }
+
+        // LOG AKTIVITAS
+        activity_log('users', 'update', $desc);
 
         return back()->with('success', 'Data admin berhasil diperbarui.');
     }
@@ -87,45 +117,70 @@ class AdminUserController extends Controller
             'password' => Hash::make($request->input('new_password')),
         ]);
 
+        // LOG AKTIVITAS
+        activity_log('users', 'reset', "Reset password: {$user->email} (ID: {$user->id})");
+
         return back()->with('success', 'Password berhasil direset.');
     }
 
-    public function toggleStatus(User $user)
+    public function toggleStatus(Request $request, User $user)
     {
         if ($user->trashed()) {
             return back()->withErrors(['toggle' => 'User sudah dihapus (soft delete). Restore dulu jika ingin ubah status.']);
         }
 
+        $currentAdminId = (int) $request->user()->id;
+
         // jangan boleh menonaktifkan diri sendiri (aman)
-        if ((int)$user->id === (int)auth()->id()) {
+        if ((int)$user->id === $currentAdminId) {
             throw ValidationException::withMessages([
                 'toggle' => 'Tidak bisa menonaktifkan akun yang sedang dipakai login.',
             ]);
         }
 
+        $before = $user->status;
+
         $user->status = ($user->status === 'active') ? 'inactive' : 'active';
         $user->save();
+
+        // LOG AKTIVITAS
+        activity_log('users', 'toggle', "Toggle status: {$user->email} (ID: {$user->id}) | {$before} → {$user->status}");
 
         return back()->with('success', 'Status admin berhasil diubah.');
     }
 
-    public function destroy(User $user)
+    public function destroy(Request $request, User $user)
     {
+        $currentAdminId = (int) $request->user()->id;
+
         // jangan boleh hapus diri sendiri
-        if ((int)$user->id === (int)auth()->id()) {
+        if ((int)$user->id === $currentAdminId) {
             throw ValidationException::withMessages([
                 'delete' => 'Tidak bisa menghapus akun yang sedang dipakai login.',
             ]);
         }
 
+        $email = $user->email;
+        $id = $user->id;
+
         $user->delete();
+
+        // LOG AKTIVITAS
+        activity_log('users', 'delete', "Soft delete admin: {$email} (ID: {$id})");
 
         return back()->with('success', 'Admin berhasil dihapus.');
     }
 
     public function restore(User $user)
     {
-        $user->restore();
+        // aman kalau belum trashed
+        if ($user->trashed()) {
+            $user->restore();
+
+            // LOG AKTIVITAS
+            activity_log('users', 'restore', "Restore admin: {$user->email} (ID: {$user->id})");
+        }
+
         return back()->with('success', 'Admin berhasil direstore.');
     }
 }

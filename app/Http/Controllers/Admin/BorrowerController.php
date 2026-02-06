@@ -69,21 +69,68 @@ class BorrowerController extends Controller
 
     public function store(BorrowerStoreRequest $request)
     {
-        Borrower::create($request->validated());
+        $data = $request->validated();
+
+        $borrower = Borrower::create($data);
+
+        // LOG AKTIVITAS
+        $idNumber = $borrower->id_number ? " | ID: {$borrower->id_number}" : "";
+        activity_log(
+            'borrowers',
+            'create',
+            "Tambah peminjam: {$borrower->name} (ID: {$borrower->id}) | type={$borrower->type}{$idNumber}"
+        );
 
         return back()->with('success', 'Peminjam berhasil ditambahkan.');
     }
 
     public function update(BorrowerUpdateRequest $request, Borrower $borrower)
     {
+        $before = [
+            'name' => $borrower->name,
+            'type' => $borrower->type,
+            'status' => $borrower->status,
+            'id_number' => $borrower->id_number,
+        ];
+
         $borrower->update($request->validated());
+
+        $after = [
+            'name' => $borrower->name,
+            'type' => $borrower->type,
+            'status' => $borrower->status,
+            'id_number' => $borrower->id_number,
+        ];
+
+        // LOG AKTIVITAS
+        $changes = [];
+        foreach ($before as $k => $v) {
+            if (($after[$k] ?? null) !== $v) {
+                $changes[] = "{$k}: " . ($v ?? '-') . " → " . ($after[$k] ?? '-');
+            }
+        }
+
+        $desc = "Update peminjam: {$borrower->name} (ID: {$borrower->id})";
+        if (!empty($changes)) {
+            $desc .= " | " . implode(' | ', $changes);
+        }
+
+        activity_log('borrowers', 'update', $desc);
 
         return back()->with('success', 'Peminjam berhasil diperbarui.');
     }
 
     public function destroy(Borrower $borrower)
     {
+        $name = $borrower->name;
+        $id   = $borrower->id;
+        $type = $borrower->type;
+        $idNumber = $borrower->id_number ? " | ID: {$borrower->id_number}" : "";
+
         $borrower->delete();
+
+        // LOG AKTIVITAS
+        activity_log('borrowers', 'delete', "Soft delete peminjam: {$name} (ID: {$id}) | type={$type}{$idNumber}");
 
         return back()->with('success', 'Peminjam berhasil dihapus (soft delete).');
     }
@@ -92,6 +139,10 @@ class BorrowerController extends Controller
     {
         $borrower = Borrower::withTrashed()->findOrFail($id);
         $borrower->restore();
+
+        // LOG AKTIVITAS
+        $idNumber = $borrower->id_number ? " | ID: {$borrower->id_number}" : "";
+        activity_log('borrowers', 'restore', "Restore peminjam: {$borrower->name} (ID: {$borrower->id}) | type={$borrower->type}{$idNumber}");
 
         return back()->with('success', 'Peminjam berhasil dipulihkan.');
     }

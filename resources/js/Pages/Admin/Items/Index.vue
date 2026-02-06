@@ -43,24 +43,72 @@ const form = ref({
 const errors = computed(() => page.props.errors || {});
 const flashSuccess = computed(() => page.props.flash?.success);
 
+/**
+ * Normalisasi input search supaya mendukung format kode unik XXX-0000:
+ * - LAB0001 -> LAB-0001
+ * - lab-1   -> LAB-0001
+ * - LAB 12  -> LAB-0012
+ * Catatan: kalau input bukan mirip kode, tidak diubah (biar tetap bisa cari nama/spesifikasi).
+ */
+function normalizeSearch(val) {
+    const raw = (val ?? "").toString().trim();
+    if (!raw) return "";
+
+    // kandidat kode: hanya huruf/angka/spasi/dash
+    const compact = raw.toUpperCase().replace(/\s+/g, "");
+    const m = compact.match(/^([A-Z0-9]{3})-?(\d{1,4})$/);
+    if (m) {
+        const prefix = m[1];
+        const num = m[2].padStart(4, "0");
+        return `${prefix}-${num}`;
+    }
+
+    return raw;
+}
+
+function applyFilters() {
+    router.get("/admin/items", f.value, {
+        preserveState: true,
+        replace: true,
+        preserveScroll: true,
+    });
+}
+
+function resetFilters() {
+    f.value = {
+        search: "",
+        category_id: "",
+        brand_id: "",
+        location_id: "",
+        status: "all",
+        condition: "all",
+        trashed: "without",
+    };
+    applyFilters();
+}
+
+// debounce search + normalisasi kode
 let t = null;
-watch(() => f.value.search, () => {
-    clearTimeout(t);
-    t = setTimeout(() => applyFilters(), 350);
-});
+watch(
+    () => f.value.search,
+    (val) => {
+        const normalized = normalizeSearch(val);
+
+        // kalau berubah karena normalisasi, set dulu, lalu watch akan jalan lagi
+        if (normalized !== val) {
+            f.value.search = normalized;
+            return;
+        }
+
+        clearTimeout(t);
+        t = setTimeout(() => applyFilters(), 350);
+    }
+);
+
 watch(
     () => [f.value.category_id, f.value.brand_id, f.value.location_id, f.value.status, f.value.condition, f.value.trashed],
     () => applyFilters()
 );
-
-function applyFilters() {
-    router.get("/admin/items", f.value, { preserveState: true, replace: true, preserveScroll: true });
-}
-
-function resetFilters() {
-    f.value = { search: "", category_id: "", brand_id: "", location_id: "", status: "all", condition: "all", trashed: "without" };
-    applyFilters();
-}
 
 function openCreate() {
     mode.value = "create";
@@ -132,7 +180,10 @@ const exportPdfUrl = computed(() => `/admin/items-export-pdf?${new URLSearchPara
         <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between mb-3">
             <div>
                 <h5 class="mb-1">Barang</h5>
-                <div class="text-muted small">CRUD barang + kode otomatis + filter lengkap + export excel/pdf</div>
+                <div class="text-muted small">
+                    CRUD barang + <span class="fw-semibold">kode unik (XXX-0000)</span> + filter lengkap + export
+                    excel/pdf
+                </div>
             </div>
 
             <div class="d-flex gap-2">
@@ -159,7 +210,11 @@ const exportPdfUrl = computed(() => `/admin/items-export-pdf?${new URLSearchPara
                 <div class="col-12 col-lg-4">
                     <label class="form-label small text-muted">Search</label>
                     <input v-model="f.search" type="text" class="form-control"
-                        placeholder="Cari kode/nama/spesifikasi..." />
+                        placeholder="Cari KODE (LAB-0001) / nama / spesifikasi..." />
+                    <div class="text-muted small mt-1">
+                        Format kode: <span class="fw-semibold">XXX-0000</span> • Shortcut: ketik <span
+                            class="fw-semibold">LAB0001</span> otomatis jadi <span class="fw-semibold">LAB-0001</span>
+                    </div>
                 </div>
 
                 <div class="col-6 col-lg-2">
@@ -242,22 +297,23 @@ const exportPdfUrl = computed(() => `/admin/items-export-pdf?${new URLSearchPara
                     </thead>
                     <tbody>
                         <tr v-for="it in items.data" :key="it.id" :class="it.deleted_at ? 'row-trashed' : ''">
-                            <td class="text-muted">{{ it.code }}</td>
+                            <td class="fw-semibold">{{ it.code }}</td>
                             <td class="fw-semibold">
                                 {{ it.name }}
                                 <span v-if="it.deleted_at" class="badge text-bg-secondary ms-2">TRASH</span>
                             </td>
-                            <td class="text-muted">{{ it.category?.name ?? '-' }}</td>
-                            <td class="text-muted">{{ it.brand?.name ?? '-' }}</td>
-                            <td class="text-muted">{{ it.location?.name ?? '-' }}</td>
+                            <td class="text-muted">{{ it.category?.name ?? "-" }}</td>
+                            <td class="text-muted">{{ it.brand?.name ?? "-" }}</td>
+                            <td class="text-muted">{{ it.location?.name ?? "-" }}</td>
                             <td class="text-muted small">
                                 T: {{ it.stock_total }} • A: {{ it.stock_available }} • B: {{ it.stock_borrowed }} • D:
                                 {{ it.stock_damaged }}
                             </td>
                             <td>
                                 <span class="badge text-bg-light me-1">{{ it.condition }}</span>
-                                <span class="badge"
-                                    :class="it.status === 'active' ? 'text-bg-success' : (it.status === 'service' ? 'text-bg-warning' : 'text-bg-secondary')">
+                                <span class="badge" :class="it.status === 'active'
+                                    ? 'text-bg-success'
+                                    : (it.status === 'service' ? 'text-bg-warning' : 'text-bg-secondary')">
                                     {{ it.status }}
                                 </span>
                             </td>
@@ -305,13 +361,13 @@ const exportPdfUrl = computed(() => `/admin/items-export-pdf?${new URLSearchPara
             <div v-for="it in items.data" :key="it.id" class="mini-card" :class="it.deleted_at ? 'row-trashed' : ''">
                 <div class="d-flex justify-content-between align-items-start">
                     <div class="me-2">
-                        <div class="text-muted small">{{ it.code }}</div>
+                        <div class="fw-semibold">{{ it.code }}</div>
                         <div class="fw-semibold">
                             {{ it.name }}
                             <span v-if="it.deleted_at" class="badge text-bg-secondary ms-2">TRASH</span>
                         </div>
                         <div class="text-muted small mt-1">
-                            {{ it.category?.name ?? '-' }} • {{ it.brand?.name ?? '-' }} • {{ it.location?.name ?? '-'
+                            {{ it.category?.name ?? "-" }} • {{ it.brand?.name ?? "-" }} • {{ it.location?.name ?? "-"
                             }}
                         </div>
                         <div class="text-muted small mt-2">
@@ -320,8 +376,9 @@ const exportPdfUrl = computed(() => `/admin/items-export-pdf?${new URLSearchPara
                         </div>
                         <div class="mt-2 d-flex gap-2 align-items-center">
                             <span class="badge text-bg-light">{{ it.condition }}</span>
-                            <span class="badge"
-                                :class="it.status === 'active' ? 'text-bg-success' : (it.status === 'service' ? 'text-bg-warning' : 'text-bg-secondary')">
+                            <span class="badge" :class="it.status === 'active'
+                                ? 'text-bg-success'
+                                : (it.status === 'service' ? 'text-bg-warning' : 'text-bg-secondary')">
                                 {{ it.status }}
                             </span>
                         </div>
@@ -346,10 +403,16 @@ const exportPdfUrl = computed(() => `/admin/items-export-pdf?${new URLSearchPara
             <div v-if="showModal" class="modal-backdrop-custom" @click.self="closeModal">
                 <div class="modal-card">
                     <div class="d-flex align-items-center justify-content-between mb-2">
-                        <div class="fw-semibold">{{ mode === 'create' ? 'Tambah Barang' : 'Edit Barang' }}</div>
+                        <div class="fw-semibold">{{ mode === "create" ? "Tambah Barang" : "Edit Barang" }}</div>
                         <button class="btn btn-sm btn-outline-secondary" @click="closeModal">
                             <i class="bi bi-x-lg"></i>
                         </button>
+                    </div>
+
+                    <div v-if="mode === 'create'" class="alert alert-light py-2 small mb-2">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Kode barang dibuat otomatis dengan format <span class="fw-semibold">XXX-0000</span> setelah
+                        disimpan.
                     </div>
 
                     <div class="row g-2">
@@ -433,8 +496,9 @@ const exportPdfUrl = computed(() => `/admin/items-export-pdf?${new URLSearchPara
 
                     <div class="d-flex justify-content-end gap-2 mt-3">
                         <button class="btn btn-outline-secondary" @click="closeModal">Batal</button>
-                        <button class="btn btn-primary" @click="submit">{{ mode === 'create' ? 'Simpan' : 'Update'
-                            }}</button>
+                        <button class="btn btn-primary" @click="submit">
+                            {{ mode === "create" ? "Simpan" : "Update" }}
+                        </button>
                     </div>
                 </div>
             </div>
@@ -462,7 +526,7 @@ const exportPdfUrl = computed(() => `/admin/items-export-pdf?${new URLSearchPara
 }
 
 .row-trashed {
-    opacity: .72;
+    opacity: 0.72;
 }
 
 .modal-backdrop-custom {

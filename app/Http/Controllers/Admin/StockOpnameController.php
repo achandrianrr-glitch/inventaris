@@ -8,9 +8,11 @@ use App\Models\Item;
 use App\Models\Location;
 use App\Models\StockOpname;
 use App\Services\NotificationService;
+use App\Support\ItemCode;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -49,22 +51,38 @@ class StockOpnameController extends Controller
 
         if ($filters['search'] !== '') {
             $s = $filters['search'];
-            $q->where(function (Builder $x) use ($s) {
+            $normalizedItemCode = ItemCode::normalize3DigitDash4($s); // ✅ LAB0001 -> LAB-0001
+
+            $q->where(function (Builder $x) use ($s, $normalizedItemCode) {
+                // cari kode opname batch (OPN260129-0001, dll)
                 $x->where('code', 'like', "%{$s}%")
-                    ->orWhereHas('item', fn($iq) => $iq->where('name', 'like', "%{$s}%")
-                        ->orWhere('code', 'like', "%{$s}%"));
+
+                    // cari dari item (kode unik 3digit-0000 / nama / kode lama tetap kebaca)
+                    ->orWhereHas('item', function (Builder $iq) use ($s, $normalizedItemCode) {
+                        $iq->where(function (Builder $z) use ($s, $normalizedItemCode) {
+                            if ($normalizedItemCode) {
+                                $z->orWhere('code', $normalizedItemCode);
+                            }
+
+                            $z->orWhere('code', 'like', "%{$s}%")
+                                ->orWhere('name', 'like', "%{$s}%");
+                        });
+                    });
             });
         }
 
         if ($filters['location_id'] !== '') {
             $loc = (int)$filters['location_id'];
-            $q->whereHas('item', fn($iq) => $iq->where('location_id', $loc));
+            $q->whereHas('item', fn(Builder $iq) => $iq->where('location_id', $loc));
         }
 
         if ($filters['date_from'] !== '') $q->whereDate('opname_date', '>=', $filters['date_from']);
         if ($filters['date_to'] !== '') $q->whereDate('opname_date', '<=', $filters['date_to']);
 
-        $opnames = $q->orderByDesc('opname_date')->orderByDesc('id')->paginate(10)->withQueryString();
+        $opnames = $q->orderByDesc('opname_date')
+            ->orderByDesc('id')
+            ->paginate(10)
+            ->withQueryString();
 
         return Inertia::render('Admin/StockOpnames/Index', [
             'opnames' => $opnames,
@@ -75,25 +93,40 @@ class StockOpnameController extends Controller
         ]);
     }
 
-    // ajax: load items by location
+    // ajax: load items by location (+ optional search)
     public function itemsByLocation(Request $request)
     {
         $locId = (int)$request->query('location_id');
+        $search = trim((string)$request->query('search', ''));
 
-        $items = Item::query()
+        $q = Item::query()
             ->where('location_id', $locId)
-            ->orderBy('name')
-            ->get([
-                'id',
-                'code',
-                'name',
-                'location_id',
-                'stock_total',
-                'stock_available',
-                'stock_borrowed',
-                'stock_damaged',
-                'status',
-            ]);
+            ->orderBy('name');
+
+        if ($search !== '') {
+            $normalizedItemCode = ItemCode::normalize3DigitDash4($search);
+
+            $q->where(function (Builder $x) use ($search, $normalizedItemCode) {
+                if ($normalizedItemCode) {
+                    $x->orWhere('code', $normalizedItemCode);
+                }
+
+                $x->orWhere('code', 'like', "%{$search}%")
+                    ->orWhere('name', 'like', "%{$search}%");
+            });
+        }
+
+        $items = $q->get([
+            'id',
+            'code',
+            'name',
+            'location_id',
+            'stock_total',
+            'stock_available',
+            'stock_borrowed',
+            'stock_damaged',
+            'status',
+        ]);
 
         return response()->json($items);
     }
@@ -120,12 +153,16 @@ class StockOpnameController extends Controller
     public function store(StockOpnameStoreRequest $request)
     {
         $data = $request->validated();
-        $adminId = (int) auth()->id();
+
+        $adminId = (int) Auth::id();
         $code = $this->generateCode();
 
         $locationId = (int)$data['location_id'];
         $opnameDate = Carbon::parse($data['opname_date'])->toDateString();
         $notes = $data['notes'] ?? null;
+
+        $locationName = Location::query()->whereKey($locationId)->value('name');
+        $locationLabel = $locationName ? "{$locationName} (ID: {$locationId})" : "ID: {$locationId}";
 
         // ✅ VALIDASI AWAL: semua item harus milik lokasi yang dipilih
         $itemIds = array_map(fn($x) => (int)$x['item_id'], $data['lines']);
@@ -138,10 +175,12 @@ class StockOpnameController extends Controller
             return back()->withErrors(['location_id' => 'Ada item yang tidak sesuai lokasi dipilih.']);
         }
 
-        return DB::transaction(function () use ($data, $adminId, $code, $locationId, $opnameDate, $notes) {
-
+        return DB::transaction(function () use ($data, $adminId, $code, $locationId, $opnameDate, $notes, $locationLabel) {
             $hasDiscrepancy = false;
-            $batchReferenceId = null; // anchor notif (BIGINT)
+            $batchReferenceId = null;
+
+            $createdCount = 0;
+            $discrepancyCount = 0;
 
             foreach ($data['lines'] as $line) {
                 $itemId = (int)$line['item_id'];
@@ -150,7 +189,7 @@ class StockOpnameController extends Controller
                 /** @var \App\Models\Item $item */
                 $item = Item::lockForUpdate()->findOrFail($itemId);
 
-                $system = (int)$item->stock_total; // stok sistem
+                $system = (int)$item->stock_total;
                 $diff = $physical - $system;
 
                 $status = ($diff === 0) ? 'normal' : 'discrepancy';
@@ -158,6 +197,7 @@ class StockOpnameController extends Controller
 
                 if ($diff !== 0) {
                     $hasDiscrepancy = true;
+                    $discrepancyCount++;
                 }
 
                 $created = StockOpname::create([
@@ -173,13 +213,13 @@ class StockOpnameController extends Controller
                     'notes' => $notes,
                 ]);
 
-                // simpan anchor id untuk notif (cukup sekali)
+                $createdCount++;
+
                 if ($batchReferenceId === null) {
                     $batchReferenceId = (int)$created->id;
                 }
             }
 
-            // ✅ NOTIF: hanya jika ada discrepancy
             if ($hasDiscrepancy) {
                 app(NotificationService::class)->createForAdmin(
                     $adminId,
@@ -191,6 +231,16 @@ class StockOpnameController extends Controller
                 );
             }
 
+            $notesShort = $notes ? mb_substr((string)$notes, 0, 80) : '-';
+            activity_log(
+                'stock_opnames',
+                'create',
+                "Buat stock opname batch {$code} | lokasi={$locationLabel} | tanggal={$opnameDate}"
+                    . " | lines={$createdCount} | discrepancy={$discrepancyCount}"
+                    . " | notif=" . ($hasDiscrepancy ? 'yes' : 'no')
+                    . " | notes={$notesShort}"
+            );
+
             return back()->with('success', "Stock opname berhasil disimpan. Kode batch: {$code}");
         });
     }
@@ -198,6 +248,7 @@ class StockOpnameController extends Controller
     public function review(Request $request): Response
     {
         $filters = [
+            'search' => trim((string)$request->query('search', '')), // ✅ tambahan (aman walau UI belum pakai)
             'location_id' => (string)$request->query('location_id', ''),
             'date_from' => (string)$request->query('date_from', ''),
             'date_to' => (string)$request->query('date_to', ''),
@@ -226,15 +277,37 @@ class StockOpnameController extends Controller
                 'created_at',
             ]);
 
+        if ($filters['search'] !== '') {
+            $s = $filters['search'];
+            $normalizedItemCode = ItemCode::normalize3DigitDash4($s);
+
+            $q->where(function (Builder $x) use ($s, $normalizedItemCode) {
+                $x->where('code', 'like', "%{$s}%")
+                    ->orWhereHas('item', function (Builder $iq) use ($s, $normalizedItemCode) {
+                        $iq->where(function (Builder $z) use ($s, $normalizedItemCode) {
+                            if ($normalizedItemCode) {
+                                $z->orWhere('code', $normalizedItemCode);
+                            }
+
+                            $z->orWhere('code', 'like', "%{$s}%")
+                                ->orWhere('name', 'like', "%{$s}%");
+                        });
+                    });
+            });
+        }
+
         if ($filters['location_id'] !== '') {
             $loc = (int)$filters['location_id'];
-            $q->whereHas('item', fn($iq) => $iq->where('location_id', $loc));
+            $q->whereHas('item', fn(Builder $iq) => $iq->where('location_id', $loc));
         }
 
         if ($filters['date_from'] !== '') $q->whereDate('opname_date', '>=', $filters['date_from']);
         if ($filters['date_to'] !== '') $q->whereDate('opname_date', '<=', $filters['date_to']);
 
-        $reviewItems = $q->orderByDesc('opname_date')->orderByDesc('id')->paginate(10)->withQueryString();
+        $reviewItems = $q->orderByDesc('opname_date')
+            ->orderByDesc('id')
+            ->paginate(10)
+            ->withQueryString();
 
         return Inertia::render('Admin/StockOpnames/Review', [
             'reviewItems' => $reviewItems,
@@ -245,15 +318,19 @@ class StockOpnameController extends Controller
         ]);
     }
 
-    // approval: apply adjustment to item stock_total + stock_available (aman)
     public function approve(StockOpname $stockOpname)
     {
         return DB::transaction(function () use ($stockOpname) {
-
             /** @var \App\Models\StockOpname $opn */
             $opn = StockOpname::lockForUpdate()->findOrFail($stockOpname->id);
 
             if ($opn->validation === 'approved') {
+                activity_log(
+                    'stock_opnames',
+                    'approve',
+                    "Approve skipped (already approved): {$opn->code} (ID: {$opn->id})"
+                );
+
                 return back()->with('success', 'Sudah di-approve.');
             }
 
@@ -267,6 +344,9 @@ class StockOpnameController extends Controller
                 ]);
             }
 
+            $beforeTotal = (int) $item->stock_total;
+            $beforeAvail = (int) $item->stock_available;
+
             $item->stock_total = (int)$opn->physical_stock;
             $item->stock_available = (int)$item->stock_total - (int)$item->stock_borrowed - (int)$item->stock_damaged;
             if ((int)$item->stock_available < 0) $item->stock_available = 0;
@@ -275,16 +355,33 @@ class StockOpnameController extends Controller
             $opn->validation = 'approved';
             $opn->save();
 
+            activity_log(
+                'stock_opnames',
+                'approve',
+                "Approve opname: {$opn->code} (ID: {$opn->id})"
+                    . " | item={$item->code} - {$item->name} (ID: {$item->id})"
+                    . " | physical={$opn->physical_stock} | diff={$opn->difference}"
+                    . " | stock_total: {$beforeTotal}→{$item->stock_total}"
+                    . " | stock_available: {$beforeAvail}→{$item->stock_available}"
+            );
+
             return back()->with('success', 'Opname discrepancy di-approve & stok sistem disesuaikan.');
         });
     }
 
-    // export CSV sederhana (tanpa package)
     public function exportCsv(Request $request)
     {
         $loc = $request->query('location_id', '');
         $dateFrom = $request->query('date_from', '');
         $dateTo = $request->query('date_to', '');
+
+        activity_log(
+            'stock_opnames',
+            'export',
+            "Export stock opname (csv) | location_id=" . ($loc !== '' ? $loc : '-')
+                . " | date_from=" . ($dateFrom !== '' ? $dateFrom : '-')
+                . " | date_to=" . ($dateTo !== '' ? $dateTo : '-')
+        );
 
         $q = StockOpname::query()
             ->with(['item:id,code,name,location_id', 'item.location:id,name'])
@@ -292,7 +389,7 @@ class StockOpnameController extends Controller
 
         if ($loc !== '') {
             $locId = (int)$loc;
-            $q->whereHas('item', fn($iq) => $iq->where('location_id', $locId));
+            $q->whereHas('item', fn(Builder $iq) => $iq->where('location_id', $locId));
         }
         if ($dateFrom !== '') $q->whereDate('opname_date', '>=', $dateFrom);
         if ($dateTo !== '') $q->whereDate('opname_date', '<=', $dateTo);

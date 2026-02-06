@@ -183,6 +183,9 @@ class ReturnController extends Controller
                 ->lockForUpdate()
                 ->findOrFail((int) $borrowing->item_id);
 
+            /** @var \App\Models\Borrower $borrower */
+            $borrower = Borrower::query()->findOrFail($borrowerId);
+
             $qty = (int) $borrowing->qty;
 
             $returnDate = !empty($data['return_date'])
@@ -191,6 +194,16 @@ class ReturnController extends Controller
 
             // hitung terlambat (untuk laporan sederhana)
             $isLate = $borrowing->return_due && $returnDate->gt($borrowing->return_due);
+
+            // Snapshot stok sebelum update (untuk log)
+            $beforeStock = [
+                'available' => (int) $item->stock_available,
+                'borrowed'  => (int) $item->stock_borrowed,
+                'damaged'   => (int) $item->stock_damaged,
+            ];
+
+            $finalBorrowingStatus = null;
+            $damageTicketCode = null;
 
             // Update stok & status berdasarkan kondisi
             if ($condition === 'normal') {
@@ -206,6 +219,8 @@ class ReturnController extends Controller
                     'status' => 'returned',
                     'notes' => $data['notes'] ?? $borrowing->notes,
                 ]);
+
+                $finalBorrowingStatus = 'returned';
             } elseif ($condition === 'damaged') {
                 // barang tidak kembali ke available, masuk stock_damaged
                 $item->stock_damaged  = (int) $item->stock_damaged + $qty;
@@ -221,8 +236,10 @@ class ReturnController extends Controller
                     'notes' => $data['notes'] ?? $borrowing->notes,
                 ]);
 
+                $finalBorrowingStatus = 'damaged';
+
                 // tiket kerusakan otomatis (1 tiket per transaksi pengembalian rusak)
-                Damage::query()->create([
+                $damage = Damage::query()->create([
                     'code' => $this->generateDamageCode(),
                     'item_id' => $item->id,
                     'borrowing_id' => $borrowing->id,
@@ -234,6 +251,16 @@ class ReturnController extends Controller
                     'completion_date' => null,
                     'admin_id' => $adminId,
                 ]);
+
+                $damageTicketCode = $damage->code;
+
+                // LOG AKTIVITAS tambahan untuk modul kerusakan
+                activity_log(
+                    'damages',
+                    'create',
+                    "Auto tiket kerusakan dari pengembalian: {$damage->code} (ID: {$damage->id}) | ref_peminjaman={$borrowing->code} (ID: {$borrowing->id})"
+                        . " | barang={$item->code} - {$item->name} (ID: {$item->id}) | qty={$qty}"
+                );
             } else { // lost
                 // barang hilang: borrowed turun, available tidak naik, total tetap (sesuai blueprint kamu)
                 $item->stock_borrowed = max(0, (int) $item->stock_borrowed - $qty);
@@ -247,12 +274,32 @@ class ReturnController extends Controller
                     'status' => 'lost',
                     'notes' => $data['notes'] ?? $borrowing->notes,
                 ]);
+
+                $finalBorrowingStatus = 'lost';
             }
 
-            // (opsional) info late: tetap bisa dihitung dari return_due vs return_date pada laporan
-            if ($isLate && $condition !== 'normal') {
-                // intentionally no-op
+            // LOG AKTIVITAS utama (pengembalian sukses)
+            $afterStock = [
+                'available' => (int) $item->stock_available,
+                'borrowed'  => (int) $item->stock_borrowed,
+                'damaged'   => (int) $item->stock_damaged,
+            ];
+
+            $desc = "Proses pengembalian: {$borrowing->code} (ID: {$borrowing->id})"
+                . " | peminjam={$borrower->name} (ID: {$borrower->id})"
+                . " | barang={$item->code} - {$item->name} (ID: {$item->id})"
+                . " | qty={$qty} | kondisi={$condition} | status={$finalBorrowingStatus}"
+                . " | late=" . ($isLate ? 'yes' : 'no')
+                . " | return_date={$returnDate->format('Y-m-d H:i:s')}"
+                . " | stok_available: {$beforeStock['available']}→{$afterStock['available']}"
+                . " | stok_borrowed: {$beforeStock['borrowed']}→{$afterStock['borrowed']}"
+                . " | stok_damaged: {$beforeStock['damaged']}→{$afterStock['damaged']}";
+
+            if ($damageTicketCode) {
+                $desc .= " | ticket={$damageTicketCode}";
             }
+
+            activity_log('returns', 'create', $desc);
 
             return back()->with('success', 'Pengembalian valid.');
         });

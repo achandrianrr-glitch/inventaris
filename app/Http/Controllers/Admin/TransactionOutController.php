@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\TransactionOutStoreRequest;
 use App\Models\Item;
 use App\Models\Transaction;
+use App\Support\ItemCode;
 use App\Support\StockAlert;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -50,13 +51,24 @@ class TransactionOutController extends Controller
 
         if ($filters['search'] !== '') {
             $s = $filters['search'];
+            $normalizedItemCode = ItemCode::normalize3DigitDash4($s); // ✅ LAB0001 -> LAB-0001
 
-            $q->where(function (Builder $x) use ($s) {
+            $q->where(function (Builder $x) use ($s, $normalizedItemCode) {
                 $x->where('code', 'like', "%{$s}%")
-                    ->orWhereHas('item', function ($iq) use ($s) {
-                        $iq->where('name', 'like', "%{$s}%")
-                            ->orWhere('code', 'like', "%{$s}%");
+
+                    // item: nama / kode (smart normalize)
+                    ->orWhereHas('item', function (Builder $iq) use ($s, $normalizedItemCode) {
+                        $iq->where(function (Builder $z) use ($s, $normalizedItemCode) {
+                            if ($normalizedItemCode) {
+                                $z->orWhere('code', $normalizedItemCode);
+                            }
+
+                            $z->orWhere('code', 'like', "%{$s}%")
+                                ->orWhere('name', 'like', "%{$s}%");
+                        });
                     })
+
+                    // tujuan / penerima / lokasi tujuan
                     ->orWhere('to_location', 'like', "%{$s}%");
             });
         }
@@ -116,7 +128,6 @@ class TransactionOutController extends Controller
     {
         $data = $request->validated();
 
-        // ✅ ganti auth()->id() supaya IDE tidak merah
         $adminId = (int) Auth::id();
 
         return DB::transaction(function () use ($data, $adminId) {
@@ -153,7 +164,7 @@ class TransactionOutController extends Controller
 
             StockAlert::lowStock($item, $adminId, 5);
 
-            Transaction::query()->create([
+            $trx = Transaction::query()->create([
                 'code' => $this->generateCode(),
                 'type' => 'out',
                 'item_id' => $item->id,
@@ -165,6 +176,16 @@ class TransactionOutController extends Controller
                 'notes' => $data['notes'] ?? null,
                 'status' => 'completed',
             ]);
+
+            // LOG AKTIVITAS (biar konsisten)
+            activity_log(
+                'transactions_out',
+                'create',
+                "Barang keluar: {$trx->code} (ID: {$trx->id}) | item={$item->code} - {$item->name} (ID: {$item->id})"
+                    . " | qty={$qty} | to=" . ($trx->to_location ?? '-')
+                    . " | date={$trx->transaction_date}"
+                    . " | stock_available={$item->stock_available}"
+            );
 
             return back()->with('success', 'Transaksi barang keluar berhasil.');
         });

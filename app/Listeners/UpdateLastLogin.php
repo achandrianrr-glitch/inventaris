@@ -9,6 +9,13 @@ class UpdateLastLogin
     public function handle(Login $event): void
     {
         $user = $event->user;
-        $user->forceFill(['last_login' => now()])->save();
+
+        // Update last_login
+        $user->forceFill([
+            'last_login' => now(),
+        ])->save();
+
+        // Log aktivitas login
+        activity_log('auth', 'login', 'Login berhasil: ' . ($user->email ?? '-'));
     }
 }

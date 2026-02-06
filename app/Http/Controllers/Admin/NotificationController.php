@@ -86,11 +86,20 @@ class NotificationController extends Controller
 
     public function markRead(Request $request, Notification $notification): RedirectResponse
     {
+        $adminId = (int) $request->user()->id;
+
         // pastikan notifikasi milik admin yang login
-        abort_if((int) $notification->admin_id !== (int) $request->user()->id, 403);
+        abort_if((int) $notification->admin_id !== $adminId, 403);
 
         if (!$notification->is_read) {
             $notification->update(['is_read' => true]);
+
+            // LOG AKTIVITAS
+            activity_log(
+                'notifications',
+                'mark_read',
+                "Tandai dibaca: notif_id={$notification->id} | type={$notification->type} | title={$notification->title}"
+            );
         }
 
         return back()->with('success', 'Notifikasi ditandai sudah dibaca.');
@@ -98,10 +107,24 @@ class NotificationController extends Controller
 
     public function markAllRead(Request $request): RedirectResponse
     {
+        $adminId = (int) $request->user()->id;
+
+        $before = Notification::query()
+            ->where('admin_id', $adminId)
+            ->where('is_read', false)
+            ->count();
+
         Notification::query()
-            ->where('admin_id', (int) $request->user()->id)
+            ->where('admin_id', $adminId)
             ->where('is_read', false)
             ->update(['is_read' => true]);
+
+        // LOG AKTIVITAS
+        activity_log(
+            'notifications',
+            'mark_all_read',
+            "Tandai semua dibaca: unread_before={$before}"
+        );
 
         return back()->with('success', 'Semua notifikasi ditandai sudah dibaca.');
     }

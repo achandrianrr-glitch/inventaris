@@ -7,6 +7,7 @@ use App\Http\Requests\Admin\BorrowingStoreRequest;
 use App\Models\Borrower;
 use App\Models\Borrowing;
 use App\Models\Item;
+use App\Support\ItemCode;
 use App\Support\StockAlert;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -53,16 +54,28 @@ class BorrowingController extends Controller
 
         if ($filters['search'] !== '') {
             $s = $filters['search'];
+            $normalizedItemCode = ItemCode::normalize3DigitDash4($s); // ✅ LAB0001 -> LAB-0001
 
-            $q->where(function (Builder $x) use ($s) {
+            $q->where(function (Builder $x) use ($s, $normalizedItemCode) {
+                // 1) kode peminjaman
                 $x->where('code', 'like', "%{$s}%")
-                    ->orWhereHas('borrower', function ($bq) use ($s) {
+
+                    // 2) borrower: nama / id_number
+                    ->orWhereHas('borrower', function (Builder $bq) use ($s) {
                         $bq->where('name', 'like', "%{$s}%")
                             ->orWhere('id_number', 'like', "%{$s}%");
                     })
-                    ->orWhereHas('item', function ($iq) use ($s) {
-                        $iq->where('name', 'like', "%{$s}%")
-                            ->orWhere('code', 'like', "%{$s}%");
+
+                    // 3) item: nama / kode (smart normalize)
+                    ->orWhereHas('item', function (Builder $iq) use ($s, $normalizedItemCode) {
+                        $iq->where(function (Builder $z) use ($s, $normalizedItemCode) {
+                            if ($normalizedItemCode) {
+                                $z->orWhere('code', $normalizedItemCode);
+                            }
+
+                            $z->orWhere('code', 'like', "%{$s}%")
+                                ->orWhere('name', 'like', "%{$s}%");
+                        });
                     });
             });
         }
@@ -77,7 +90,7 @@ class BorrowingController extends Controller
 
         $borrowings = $q->orderByDesc('created_at')->paginate(10)->withQueryString();
 
-        // indikator terlambat (tanpa cron dulu): flag overdue saat status masih borrowed & due lewat
+        // indikator terlambat (tanpa cron): flag overdue saat status masih borrowed & due lewat
         $borrowings->through(function ($row) {
             $isOverdue = ($row->status === 'borrowed') && $row->return_due && now()->gt($row->return_due);
             $row->is_overdue = $isOverdue;
@@ -133,7 +146,6 @@ class BorrowingController extends Controller
     {
         $data = $request->validated();
 
-        // ✅ ganti helper auth() -> Auth::id() biar IDE tidak merah
         $adminId = (int) Auth::id();
 
         return DB::transaction(function () use ($data, $adminId) {
@@ -141,17 +153,14 @@ class BorrowingController extends Controller
             $itemId = (int) $data['item_id'];
             $qty = (int) $data['qty'];
 
-            // Lock item biar stok aman
             /** @var \App\Models\Item $item */
             $item = Item::query()->lockForUpdate()->findOrFail($itemId);
 
-            // Validasi: borrower aktif (tidak blocked)
             $borrower = Borrower::query()->findOrFail($borrowerId);
             if ($borrower->status !== 'active') {
                 return back()->withErrors(['borrower_id' => 'Peminjam sedang diblokir.']);
             }
 
-            // Validasi: 1 peminjam = 1 pinjaman aktif
             $hasActive = Borrowing::query()
                 ->where('borrower_id', $borrowerId)
                 ->whereIn('status', ['borrowed', 'late'])
@@ -161,20 +170,16 @@ class BorrowingController extends Controller
                 return back()->withErrors(['borrower_id' => 'Masih ada pinjaman aktif untuk peminjam ini.']);
             }
 
-            // Validasi stok cukup
             if ((int) $item->stock_available < $qty) {
                 return back()->withErrors(['qty' => 'Stok tersedia tidak cukup.']);
             }
 
-            // Tentukan return_due
             $borrowDate = Carbon::parse($data['borrow_date'])->startOfDay();
             $borrowTime = !empty($data['borrow_time']) ? $data['borrow_time'] : null;
 
             if (($data['borrow_type'] ?? '') === 'lesson') {
-                // jam pelajaran: wajib balik hari itu (23:59)
                 $returnDue = Carbon::parse($data['borrow_date'])->endOfDay();
             } else {
-                // daily: due jam 23:59 di return_due_date
                 $returnDue = Carbon::parse($data['return_due_date'])->endOfDay();
 
                 if ($returnDue->lt($borrowDate)) {
@@ -182,14 +187,13 @@ class BorrowingController extends Controller
                 }
             }
 
-            // Update stok
             $item->stock_available = (int) $item->stock_available - $qty;
             $item->stock_borrowed  = (int) $item->stock_borrowed + $qty;
             $item->save();
 
             StockAlert::lowStock($item, $adminId, 5);
 
-            Borrowing::query()->create([
+            $borrowing = Borrowing::query()->create([
                 'code' => $this->generateCode(),
                 'borrower_id' => $borrowerId,
                 'item_id' => $itemId,
@@ -210,6 +214,15 @@ class BorrowingController extends Controller
                 'admin_id' => $adminId,
                 'notes'    => $data['notes'] ?? null,
             ]);
+
+            activity_log(
+                'borrowings',
+                'create',
+                "Buat peminjaman: {$borrowing->code} (ID: {$borrowing->id}) | peminjam={$borrower->name} (ID: {$borrower->id})"
+                    . " | barang={$item->code} - {$item->name} (ID: {$item->id}) | qty={$qty} | type={$borrowing->borrow_type}"
+                    . " | due={$returnDue->format('Y-m-d H:i:s')}"
+                    . " | stok_available={$item->stock_available} | stok_borrowed={$item->stock_borrowed}"
+            );
 
             return back()->with('success', 'Peminjaman berhasil disimpan. Stok tersedia berkurang & stok dipinjam bertambah.');
         });

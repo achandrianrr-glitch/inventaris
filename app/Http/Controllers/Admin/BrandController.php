@@ -53,21 +53,42 @@ class BrandController extends Controller
 
     public function store(BrandStoreRequest $request)
     {
-        Brand::create($request->validated());
+        $data = $request->validated();
+
+        $brand = Brand::create($data);
+
+        // LOG AKTIVITAS
+        activity_log('brands', 'create', "Tambah merek: {$brand->name} (ID: {$brand->id})");
 
         return back()->with('success', 'Merek berhasil ditambahkan.');
     }
 
     public function update(BrandUpdateRequest $request, Brand $brand)
     {
+        $beforeName = $brand->name;
+
         $brand->update($request->validated());
+
+        // LOG AKTIVITAS
+        $afterName = $brand->name;
+        $desc = ($beforeName !== $afterName)
+            ? "Update merek ID {$brand->id}: {$beforeName} → {$afterName}"
+            : "Update merek: {$brand->name} (ID: {$brand->id})";
+
+        activity_log('brands', 'update', $desc);
 
         return back()->with('success', 'Merek berhasil diperbarui.');
     }
 
     public function destroy(Brand $brand)
     {
+        $name = $brand->name;
+        $id   = $brand->id;
+
         $brand->delete();
+
+        // LOG AKTIVITAS
+        activity_log('brands', 'delete', "Soft delete merek: {$name} (ID: {$id})");
 
         return back()->with('success', 'Merek berhasil dihapus (soft delete).');
     }
@@ -76,6 +97,9 @@ class BrandController extends Controller
     {
         $brand = Brand::withTrashed()->findOrFail($id);
         $brand->restore();
+
+        // LOG AKTIVITAS
+        activity_log('brands', 'restore', "Restore merek: {$brand->name} (ID: {$brand->id})");
 
         return back()->with('success', 'Merek berhasil dipulihkan.');
     }

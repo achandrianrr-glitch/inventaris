@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\ActivityLogController;
 use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\BrandController;
 use App\Http\Controllers\Admin\BorrowerController;
@@ -7,17 +8,18 @@ use App\Http\Controllers\Admin\BorrowingController;
 use App\Http\Controllers\Admin\CategoryController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DamageController;
+use App\Http\Controllers\Admin\HistoryController;
 use App\Http\Controllers\Admin\ItemController;
 use App\Http\Controllers\Admin\LocationController;
 use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\ReturnController;
+use App\Http\Controllers\Admin\SettingController;
 use App\Http\Controllers\Admin\StockOpnameController;
 use App\Http\Controllers\Admin\TransactionInController;
 use App\Http\Controllers\Admin\TransactionOutController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Middleware\EnsureUserIsActive;
-
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -54,11 +56,18 @@ Route::get('/dashboard', function () {
  */
 Route::middleware(['auth', 'verified', EnsureUserIsActive::class])
     ->prefix('admin')
-    ->name('admin.')
+    ->as('admin.')
     ->group(function () {
 
-        // Dashboard
+        /**
+         * Dashboard
+         */
         Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+
+        /**
+         * ✅ History (untuk tombol "Lihat Semua History" di Dashboard)
+         */
+        Route::get('/history', [HistoryController::class, 'index'])->name('history');
 
         /**
          * ✅ Tahap 16 — Notifications
@@ -114,8 +123,8 @@ Route::middleware(['auth', 'verified', EnsureUserIsActive::class])
         Route::delete('/items/{item}', [ItemController::class, 'destroy'])->name('items.destroy');
         Route::patch('/items/{id}/restore', [ItemController::class, 'restore'])->name('items.restore');
         Route::get('/items/{item}', [ItemController::class, 'show'])->name('items.show');
-        Route::get('/items-export-excel', [ItemController::class, 'exportExcel'])->name('items.exportExcel');
-        Route::get('/items-export-pdf', [ItemController::class, 'exportPdf'])->name('items.exportPdf');
+        Route::get('/items-export-excel', [ItemController::class, 'exportExcel'])->name('items.export_excel');
+        Route::get('/items-export-pdf', [ItemController::class, 'exportPdf'])->name('items.export_pdf');
 
         /**
          * ✅ Tahap 10 — Transaction IN
@@ -144,7 +153,7 @@ Route::middleware(['auth', 'verified', EnsureUserIsActive::class])
          */
         Route::get('/returns', [ReturnController::class, 'index'])->name('returns');
         Route::post('/returns', [ReturnController::class, 'store'])->name('returns.store');
-        Route::get('/returns/active-borrowings', [ReturnController::class, 'activeBorrowings'])->name('returns.activeBorrowings');
+        Route::get('/returns/active-borrowings', [ReturnController::class, 'activeBorrowings'])->name('returns.active_borrowings');
 
         /**
          * ✅ Tahap 14 — Damages (Kerusakan)
@@ -159,10 +168,8 @@ Route::middleware(['auth', 'verified', EnsureUserIsActive::class])
         Route::get('/stock-opnames', [StockOpnameController::class, 'index'])->name('stock_opnames');
         Route::post('/stock-opnames', [StockOpnameController::class, 'store'])->name('stock_opnames.store');
         Route::get('/stock-opnames/items', [StockOpnameController::class, 'itemsByLocation'])->name('stock_opnames.items');
-
         Route::get('/stock-opnames/review', [StockOpnameController::class, 'review'])->name('stock_opnames.review');
         Route::patch('/stock-opnames/{stockOpname}/approve', [StockOpnameController::class, 'approve'])->name('stock_opnames.approve');
-
         Route::get('/stock-opnames/export/csv', [StockOpnameController::class, 'exportCsv'])->name('stock_opnames.export_csv');
 
         // OPTIONAL alias supaya URL lama /admin/opnames tidak 404
@@ -176,10 +183,11 @@ Route::middleware(['auth', 'verified', EnsureUserIsActive::class])
          */
         Route::get('/reports', [ReportController::class, 'index'])->name('reports');
 
-        // ✅ FIX: Halaman submenu laporan (biar link sidebar tidak 404)
+        // Submenu helper (biar link sidebar tidak 404)
         Route::get('/reports/inventory', fn() => redirect('/admin/reports?tab=inventory'))->name('reports.inventory');
         Route::get('/reports/transactions', fn() => redirect('/admin/reports?tab=transactions'))->name('reports.transactions');
         Route::get('/reports/damages', fn() => redirect('/admin/reports?tab=damages'))->name('reports.damages');
+        Route::get('/reports/borrowings', fn() => redirect('/admin/reports?tab=borrowings'))->name('reports.borrowings');
 
         // Excel (single report)
         Route::get('/reports/inventory/excel', [ReportController::class, 'inventoryExcel'])->name('reports.inventory_excel');
@@ -200,29 +208,29 @@ Route::middleware(['auth', 'verified', EnsureUserIsActive::class])
          * ✅ Tahap 18 — Data Pengguna (Admin Users)
          */
         Route::get('/users', [AdminUserController::class, 'index'])->name('users');
-
         Route::post('/users', [AdminUserController::class, 'store'])->name('users.store');
         Route::patch('/users/{user}', [AdminUserController::class, 'update'])->name('users.update');
-
         Route::patch('/users/{user}/reset-password', [AdminUserController::class, 'resetPassword'])->name('users.reset_password');
         Route::patch('/users/{user}/toggle-status', [AdminUserController::class, 'toggleStatus'])->name('users.toggle_status');
-
         Route::delete('/users/{user}', [AdminUserController::class, 'destroy'])->name('users.destroy');
+
         Route::patch('/users/{user}/restore', [AdminUserController::class, 'restore'])
             ->withTrashed()
             ->name('users.restore');
 
-        // ✅ Backward compatible: link lama /admin/system/users diarahkan ke /admin/users
-        Route::redirect('/system/users', '/admin/users')->name('system.users');
+        Route::redirect('/system/users', '/admin/users');
 
         /**
-         * PLACEHOLDER pages (Tahap 19+ / lainnya)
+         * ✅ Tahap 19 — Settings
          */
-        Route::get('/system/settings', fn() => Inertia::render('Admin/ComingSoon', ['title' => 'Pengaturan']))
-            ->name('system.settings');
+        Route::get('/settings', [SettingController::class, 'index'])->name('settings');
+        Route::patch('/settings', [SettingController::class, 'update'])->name('settings.update');
 
-        Route::get('/system/activity-logs', fn() => Inertia::render('Admin/ComingSoon', ['title' => 'Log Aktivitas']))
-            ->name('system.logs');
+        /**
+         * ✅ Tahap 20 — Activity Logs
+         */
+        Route::get('/activity-logs', [ActivityLogController::class, 'index'])->name('activity_logs');
+        Route::get('/activity-logs/excel', [ActivityLogController::class, 'exportExcel'])->name('activity_logs.excel');
     });
 
 /**

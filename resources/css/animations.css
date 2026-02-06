@@ -1,0 +1,170 @@
+/* ===== Base durations ===== */
+:root {
+    --dur-fast: 120ms;
+    --dur: 180ms;
+    --dur-slow: 240ms;
+    --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* ===== Page transitions ===== */
+.page-enter-active,
+.page-leave-active {
+    transition:
+        opacity var(--dur-slow) var(--ease),
+        transform var(--dur-slow) var(--ease);
+}
+.page-enter-from,
+.page-leave-to {
+    opacity: 0;
+    transform: translateY(10px);
+}
+
+/* ===== Fade ===== */
+.fade-enter-active,
+.fade-leave-active {
+    transition: opacity var(--dur) var(--ease);
+}
+.fade-enter-from,
+.fade-leave-to {
+    opacity: 0;
+}
+
+/* ===== Scale (modal) ===== */
+.scale-enter-active,
+.scale-leave-active {
+    transition:
+        opacity var(--dur) var(--ease),
+        transform var(--dur) var(--ease);
+}
+.scale-enter-from,
+.scale-leave-to {
+    opacity: 0;
+    transform: scale(0.96);
+}
+
+/* ===== Slide-down (toast) ===== */
+.slide-down-enter-active,
+.slide-down-leave-active {
+    transition:
+        opacity var(--dur) var(--ease),
+        transform var(--dur) var(--ease);
+}
+.slide-down-enter-from,
+.slide-down-leave-to {
+    opacity: 0;
+    transform: translateY(-14px);
+}
+
+/* ===== Drawer / sheet feel ===== */
+.slide-left-enter-active,
+.slide-left-leave-active {
+    transition:
+        opacity var(--dur) var(--ease),
+        transform var(--dur) var(--ease);
+}
+.slide-left-enter-from,
+.slide-left-leave-to {
+    opacity: 0;
+    transform: translateX(-18px);
+}
+.slide-up-enter-active,
+.slide-up-leave-active {
+    transition:
+        opacity var(--dur) var(--ease),
+        transform var(--dur) var(--ease);
+}
+.slide-up-enter-from,
+.slide-up-leave-to {
+    opacity: 0;
+    transform: translateY(18px);
+}
+
+/* ===== Button hover & press ===== */
+.btn,
+.btn-touch {
+    transition:
+        transform var(--dur-fast) var(--ease),
+        box-shadow var(--dur-fast) var(--ease);
+}
+.btn:hover {
+    transform: translateY(-1px);
+}
+.btn:active {
+    transform: translateY(0px) scale(0.98);
+}
+
+/* ===== Smooth scroll ===== */
+html {
+    scroll-behavior: smooth;
+}
+
+/* ===== Ripple effect ===== */
+.ripple {
+    position: relative;
+    overflow: hidden;
+}
+.ripple::after {
+    content: "";
+    position: absolute;
+    inset: auto;
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.12);
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+    pointer-events: none;
+}
+.ripple:active::after {
+    left: var(--rx, 50%);
+    top: var(--ry, 50%);
+    transform: translate(-50%, -50%) scale(18);
+    opacity: 1;
+    transition:
+        transform var(--dur-slow) var(--ease),
+        opacity var(--dur-slow) var(--ease);
+}
+
+/* ===== Skeleton loader ===== */
+.skeleton {
+    position: relative;
+    background: rgba(2, 6, 23, 0.08);
+    border-radius: 12px;
+    overflow: hidden;
+}
+.skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-120%);
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.55),
+        transparent
+    );
+    animation: shimmer 1.1s infinite;
+}
+@keyframes shimmer {
+    0% {
+        transform: translateX(-120%);
+    }
+    100% {
+        transform: translateX(120%);
+    }
+}
+
+/* ===== Loading spinner ===== */
+.spinner {
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 2px solid rgba(2, 6, 23, 0.18);
+    border-top-color: rgba(2, 6, 23, 0.65);
+    animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}

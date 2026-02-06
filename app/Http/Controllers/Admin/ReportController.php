@@ -8,12 +8,12 @@ use App\Exports\Sheets\DamagesSheet;
 use App\Exports\Sheets\InventorySheet;
 use App\Http\Controllers\Controller;
 use App\Models\Brand;
-use App\Models\Category;
-use App\Models\Location;
-use App\Models\Setting;
 use App\Models\Borrowing;
+use App\Models\Category;
 use App\Models\Damage;
 use App\Models\Item;
+use App\Models\Location;
+use App\Models\Setting;
 use App\Models\Transaction;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
@@ -273,8 +273,7 @@ class ReportController extends Controller
         $filters = $this->filters($request);
         $name = 'Laporan_Transaksi_' . date('Ymd_His') . '.xlsx';
 
-        // NOTE: kamu sebelumnya pakai ReportsWorkbookExport untuk transaksi (multi-sheet).
-        // Aku pertahankan supaya tidak merusak struktur export yang sudah kamu buat.
+        // multi-sheet export (tetap pakai export yang sudah kamu buat)
         return Excel::download(new ReportsWorkbookExport($filters), $name);
     }
 
@@ -306,7 +305,8 @@ class ReportController extends Controller
     // ========== PDF ==========
     private function school(): array
     {
-        $s = Setting::query()->first();
+        // ✅ lebih aman: selalu ambil setting id=1
+        $s = \App\Models\Setting::query()->find(1);
 
         return [
             'school_name' => $s?->school_name ?? 'Sekolah',
@@ -341,14 +341,15 @@ class ReportController extends Controller
     {
         $filters = $this->filters($request);
 
-        $q = Transaction::query()
+        $base = Transaction::query()
             ->with(['item:id,code,name', 'admin:id,name'])
-            ->when(!empty($filters['date_from']), fn($x) => $x->whereDate('transaction_date', '>=', $filters['date_from']))
-            ->when(!empty($filters['date_to']), fn($x) => $x->whereDate('transaction_date', '<=', $filters['date_to']))
-            ->orderByDesc('transaction_date');
+            ->when(!empty($filters['date_from']), fn($q) => $q->whereDate('transaction_date', '>=', $filters['date_from']))
+            ->when(!empty($filters['date_to']), fn($q) => $q->whereDate('transaction_date', '<=', $filters['date_to']))
+            ->orderByDesc('transaction_date')
+            ->orderByDesc('id');
 
-        $in = (clone $q)->where('type', 'in')->get();
-        $out = (clone $q)->where('type', 'out')->get();
+        $in = (clone $base)->where('type', 'in')->get();
+        $out = (clone $base)->where('type', 'out')->get();
 
         $pdf = Pdf::loadView('reports.transactions', [
             'school' => $this->school(),

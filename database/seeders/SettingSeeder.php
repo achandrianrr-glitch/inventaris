@@ -13,7 +13,7 @@ class SettingSeeder extends Seeder
             ['id' => 1],
             [
                 'school_name' => 'SMKN 9 MALANG',
-                'city' => 'Jakarta',
+                'city' => 'Malang',
                 'code_format' => 'INV-{YEAR}-{SEQ}',
                 'notification_email' => 'inventaryy@gmail.com',
                 'notification_wa' => null,

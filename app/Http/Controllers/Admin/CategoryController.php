@@ -64,21 +64,42 @@ class CategoryController extends Controller
 
     public function store(CategoryStoreRequest $request)
     {
-        Category::create($request->validated());
+        $data = $request->validated();
+
+        $category = Category::create($data);
+
+        // LOG AKTIVITAS
+        activity_log('categories', 'create', "Tambah kategori: {$category->name} (ID: {$category->id})");
 
         return back()->with('success', 'Kategori berhasil ditambahkan.');
     }
 
     public function update(CategoryUpdateRequest $request, Category $category)
     {
+        $beforeName = $category->name;
+
         $category->update($request->validated());
+
+        // LOG AKTIVITAS
+        $afterName = $category->name;
+        $desc = ($beforeName !== $afterName)
+            ? "Update kategori ID {$category->id}: {$beforeName} → {$afterName}"
+            : "Update kategori: {$category->name} (ID: {$category->id})";
+
+        activity_log('categories', 'update', $desc);
 
         return back()->with('success', 'Kategori berhasil diperbarui.');
     }
 
     public function destroy(Category $category)
     {
+        $name = $category->name;
+        $id   = $category->id;
+
         $category->delete();
+
+        // LOG AKTIVITAS
+        activity_log('categories', 'delete', "Soft delete kategori: {$name} (ID: {$id})");
 
         return back()->with('success', 'Kategori berhasil dihapus (soft delete).');
     }
@@ -88,6 +109,9 @@ class CategoryController extends Controller
         $category = Category::withTrashed()->findOrFail($id);
         $category->restore();
 
+        // LOG AKTIVITAS
+        activity_log('categories', 'restore', "Restore kategori: {$category->name} (ID: {$category->id})");
+
         return back()->with('success', 'Kategori berhasil dipulihkan.');
     }
 
@@ -96,6 +120,11 @@ class CategoryController extends Controller
         $search  = trim((string) $request->query('search', ''));
         $status  = (string) $request->query('status', 'all');
         $trashed = (string) $request->query('trashed', 'without');
+
+        // LOG AKTIVITAS
+        $desc = "Export kategori (excel) | search=" . ($search !== '' ? $search : '-')
+            . " | status={$status} | trashed={$trashed}";
+        activity_log('categories', 'export', $desc);
 
         return Excel::download(
             new CategoriesExport($search, $status, $trashed),

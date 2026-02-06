@@ -145,8 +145,11 @@ class DamageController extends Controller
             $borrowingId = $data['borrowing_id'] ?? null;
             $qtyImpact = 1;
 
+            $borrowingCode = null;
+
             if ($borrowingId) {
                 $borrowing = Borrowing::query()->findOrFail((int) $borrowingId);
+                $borrowingCode = $borrowing->code;
 
                 // anti double-log dari Tahap 13 (kalau sudah dibuat otomatis saat pengembalian rusak)
                 if ($borrowing->return_condition === 'damaged' || $borrowing->status === 'damaged') {
@@ -167,6 +170,8 @@ class DamageController extends Controller
 
                 $qtyImpact = max(1, (int) $borrowing->qty);
             }
+
+            $beforeDamaged = (int) $item->stock_damaged;
 
             // laporan kerusakan manual: tambahkan stok rusak
             $item->stock_damaged = (int) $item->stock_damaged + $qtyImpact;
@@ -196,6 +201,20 @@ class DamageController extends Controller
                 'admin_id' => $adminId,
             ]);
 
+            // LOG AKTIVITAS (sukses)
+            $desc = "Buat laporan kerusakan: {$damage->code} (ID: {$damage->id})"
+                . " | barang={$item->code} - {$item->name} (ID: {$item->id})"
+                . " | level={$damage->damage_level}"
+                . " | qty_impact={$qtyImpact}"
+                . " | stok_damaged: {$beforeDamaged}→{$item->stock_damaged}"
+                . " | reported_date={$damage->reported_date}";
+
+            if ($borrowingId) {
+                $desc .= " | ref_peminjaman={$borrowingCode} (ID: {$borrowingId})";
+            }
+
+            activity_log('damages', 'create', $desc);
+
             return back()->with('success', 'Laporan kerusakan berhasil dibuat.');
         });
     }
@@ -204,7 +223,13 @@ class DamageController extends Controller
     {
         $data = $request->validated();
 
-        return DB::transaction(function () use ($data, $damage) {
+        $before = [
+            'status' => $damage->status,
+            'solution' => $damage->solution,
+            'completion_date' => $damage->completion_date,
+        ];
+
+        return DB::transaction(function () use ($data, $damage, $before) {
             $payload = [
                 'status' => $data['status'],
                 'solution' => $data['solution'] ?? null,
@@ -217,6 +242,28 @@ class DamageController extends Controller
             }
 
             $damage->update($payload);
+
+            // LOG AKTIVITAS (sukses update)
+            $after = [
+                'status' => $damage->status,
+                'solution' => $damage->solution,
+                'completion_date' => $damage->completion_date,
+            ];
+
+            $changes = [];
+            foreach ($before as $k => $v) {
+                $av = $after[$k] ?? null;
+                if ($av !== $v) {
+                    $changes[] = "{$k}: " . ($v ?? '-') . " → " . ($av ?? '-');
+                }
+            }
+
+            $desc = "Update kerusakan: {$damage->code} (ID: {$damage->id})";
+            if (!empty($changes)) {
+                $desc .= " | " . implode(' | ', $changes);
+            }
+
+            activity_log('damages', 'update', $desc);
 
             return back()->with('success', 'Kerusakan berhasil diperbarui.');
         });

@@ -56,21 +56,42 @@ class LocationController extends Controller
 
     public function store(LocationStoreRequest $request)
     {
-        Location::create($request->validated());
+        $data = $request->validated();
+
+        $location = Location::create($data);
+
+        // LOG AKTIVITAS
+        activity_log('locations', 'create', "Tambah lokasi: {$location->name} (ID: {$location->id})");
 
         return back()->with('success', 'Lokasi berhasil ditambahkan.');
     }
 
     public function update(LocationUpdateRequest $request, Location $location)
     {
+        $beforeName = $location->name;
+
         $location->update($request->validated());
+
+        // LOG AKTIVITAS
+        $afterName = $location->name;
+        $desc = ($beforeName !== $afterName)
+            ? "Update lokasi ID {$location->id}: {$beforeName} → {$afterName}"
+            : "Update lokasi: {$location->name} (ID: {$location->id})";
+
+        activity_log('locations', 'update', $desc);
 
         return back()->with('success', 'Lokasi berhasil diperbarui.');
     }
 
     public function destroy(Location $location)
     {
+        $name = $location->name;
+        $id   = $location->id;
+
         $location->delete();
+
+        // LOG AKTIVITAS
+        activity_log('locations', 'delete', "Soft delete lokasi: {$name} (ID: {$id})");
 
         return back()->with('success', 'Lokasi berhasil dihapus (soft delete).');
     }
@@ -79,6 +100,9 @@ class LocationController extends Controller
     {
         $location = Location::withTrashed()->findOrFail($id);
         $location->restore();
+
+        // LOG AKTIVITAS
+        activity_log('locations', 'restore', "Restore lokasi: {$location->name} (ID: {$location->id})");
 
         return back()->with('success', 'Lokasi berhasil dipulihkan.');
     }
